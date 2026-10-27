@@ -58,7 +58,13 @@ class RingService : Service() {
         }
 
         val item = Store.get(id)
-        startForegroundCompat(buildNotification(id, item))
+        try {
+            startForegroundCompat(buildNotification(id, item))
+        } catch (e: Exception) {
+            item?.let { Fallback.post(this, it, "響鈴服務無法前景執行：${e.javaClass.simpleName}") }
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (item == null) {
             stopSelf()
             return START_NOT_STICKY
@@ -66,7 +72,8 @@ class RingService : Service() {
 
         stopSound()
         running = true
-        startSound()
+        val soundOk = startSound()
+        if (!soundOk) Fallback.post(this, item, "找不到可播放的鬧鐘音效，請檢查系統鬧鐘鈴聲")
         handler.removeCallbacksAndMessages(null)
         handler.postDelayed({ stopSelf() }, MAX_RING_MS)
         return START_NOT_STICKY
@@ -119,35 +126,60 @@ class RingService : Service() {
             .build()
     }
 
-    private fun startSound() {
-        val pm = getSystemService(PowerManager::class.java)
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "alarm:ring").apply {
-            acquire(MAX_RING_MS)
-        }
+    /** 回傳是否成功播出聲音；會依序嘗試多個系統音效來源 */
+    private fun startSound(): Boolean {
         try {
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            player = MediaPlayer().apply {
-                setAudioAttributes(
+            val pm = getSystemService(PowerManager::class.java)
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "alarm:ring").apply {
+                acquire(MAX_RING_MS)
+            }
+        } catch (_: Exception) {
+        }
+
+        val uris = listOfNotNull(
+            RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM),
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+            RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_RINGTONE),
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+        )
+        var ok = false
+        for (uri in uris) {
+            try {
+                val mp = MediaPlayer()
+                mp.setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
-                setDataSource(this@RingService, uri)
-                isLooping = true
-                prepare()
-                start()
+                mp.setDataSource(this, uri)
+                mp.isLooping = true
+                mp.prepare()
+                mp.start()
+                player = mp
+                ok = true
+                break
+            } catch (_: Exception) {
+                try {
+                    player?.release()
+                } catch (_: Exception) {
+                }
+                player = null
             }
+        }
+
+        try {
+            vibrator = if (Build.VERSION.SDK_INT >= 31) {
+                getSystemService(VibratorManager::class.java).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 600, 400), 0))
         } catch (_: Exception) {
         }
-        vibrator = if (Build.VERSION.SDK_INT >= 31) {
-            getSystemService(VibratorManager::class.java).defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-        vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 600, 400), 0))
+        return ok
     }
 
     private fun stopSound() {

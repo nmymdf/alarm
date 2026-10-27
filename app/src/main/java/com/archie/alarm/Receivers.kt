@@ -1,6 +1,12 @@
 package com.archie.alarm
 
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
+import androidx.core.app.NotificationCompat
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -26,9 +32,51 @@ class AlarmReceiver : BroadcastReceiver() {
                 Scheduler.schedule(ctx, item)
             }
         }
-        ContextCompat.startForegroundService(
-            ctx, Intent(ctx, RingService::class.java).putExtra("id", id)
-        )
+        try {
+            ContextCompat.startForegroundService(
+                ctx, Intent(ctx, RingService::class.java).putExtra("id", id)
+            )
+        } catch (e: Exception) {
+            Fallback.post(ctx, item, "無法啟動響鈴服務：${e.javaClass.simpleName}")
+        }
+    }
+}
+
+/** 主要響鈴失敗時的備援：直接用系統通知（鬧鐘音效＋震動）提醒 */
+object Fallback {
+    fun post(ctx: Context, item: Item, why: String) {
+        try {
+            val nm = ctx.getSystemService(NotificationManager::class.java)
+            val ch = "ring_fallback"
+            val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            nm.createNotificationChannel(
+                NotificationChannel(ch, "鬧鐘（備援）", NotificationManager.IMPORTANCE_HIGH).apply {
+                    setSound(
+                        sound,
+                        AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build()
+                    )
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 600, 400, 600, 400, 600)
+                }
+            )
+            val open = PendingIntent.getActivity(
+                ctx, 0, Intent(ctx, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val n = NotificationCompat.Builder(ctx, ch)
+                .setSmallIcon(R.drawable.ic_stat_alarm)
+                .setContentTitle("${item.timeText()} ${item.label.ifBlank { "鬧鐘" }}")
+                .setContentText(why)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setAutoCancel(true)
+                .setContentIntent(open)
+                .setFullScreenIntent(open, true)
+                .build()
+            nm.notify(2000 + item.id.toInt(), n)
+        } catch (_: Exception) {
+        }
     }
 }
 
