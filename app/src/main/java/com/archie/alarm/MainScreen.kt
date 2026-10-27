@@ -11,6 +11,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,10 +21,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -32,20 +35,20 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,25 +73,51 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-private val ErrorRed = Color(0xFFD32F2F)
-
 @Composable
 fun AlarmTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = lightColorScheme(
+    val dark = isSystemInDarkTheme()
+    val scheme = if (dark) {
+        darkColorScheme(
+            primary = Color(0xFF6C8EF5),
+            onPrimary = Color(0xFF0B1330),
+            primaryContainer = Color(0xFF2A3A66),
+            onPrimaryContainer = Color(0xFFE8EAF0),
+            background = Color(0xFF101319),
+            onBackground = Color(0xFFE8EAF0),
+            surface = Color(0xFF1A1F29),
+            onSurface = Color(0xFFE8EAF0),
+            surfaceVariant = Color(0xFF262D3A),
+            onSurfaceVariant = Color(0xFFA0A8BA),
+            outlineVariant = Color(0xFF333B4A),
+            error = Color(0xFFFF8A80),
+        )
+    } else {
+        lightColorScheme(
             primary = Color(0xFF2B5FD9),
-            background = Color(0xFFF6F7F9),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFF2B5FD9),
+            onPrimaryContainer = Color.White,
+            background = Color(0xFFF3F4F8),
+            onBackground = Color(0xFF1B1D24),
             surface = Color.White,
-        ),
-        content = content,
-    )
+            onSurface = Color(0xFF1B1D24),
+            surfaceVariant = Color(0xFFEEF0F6),
+            onSurfaceVariant = Color(0xFF5F6575),
+            outlineVariant = Color(0xFFD9DCE6),
+            error = Color(0xFFD32F2F),
+        )
+    }
+    MaterialTheme(colorScheme = scheme, content = content)
 }
+
+private val CardShape = RoundedCornerShape(16.dp)
 
 // ───────────────────────── 主畫面 ─────────────────────────
 
 @Composable
 fun MainScreen(permTick: Int, version: String) {
     val ctx = LocalContext.current
+    val cs = MaterialTheme.colorScheme
     val items by Store.items.collectAsState()
     var editingId by remember { mutableStateOf<Long?>(null) }
     var selected by remember { mutableStateOf(setOf<Long>()) }
@@ -104,14 +133,12 @@ fun MainScreen(permTick: Int, version: String) {
             if (it.enabled) k else k + far
         }
     }
-    val nextText = remember(items) {
+    val next = remember(items) {
         val n = LocalDateTime.now()
         items.filter { it.enabled }
             .mapNotNull { i -> i.nextTrigger(n)?.let { t -> Triple(i, t, t.atZone(zone).toEpochSecond()) } }
             .minByOrNull { it.third }
-            ?.let { (i, t, _) ->
-                "下一個：${Fmt.dayLabel(t.toLocalDate(), n.toLocalDate())} ${i.timeText()} ${i.label}・${Fmt.until(n, t)}"
-            } ?: "沒有啟用中的鬧鐘"
+            ?.let { (i, t, _) -> Triple(i, t, n) }
     }
 
     val needNotif = remember(permTick) {
@@ -145,28 +172,64 @@ fun MainScreen(permTick: Int, version: String) {
         msg = if (skipped > 0) "有 $skipped 筆時間已過，請先改日期" else null
     }
 
+    fun testRing() {
+        try {
+            ContextCompat.startForegroundService(
+                ctx, Intent(ctx, RingService::class.java).putExtra("id", RingService.TEST_ID)
+            )
+            ctx.startActivity(
+                Intent(ctx, RingActivity::class.java).putExtra("id", RingService.TEST_ID)
+            )
+        } catch (e: Exception) {
+            msg = "測試失敗：${e.javaClass.simpleName}"
+        }
+    }
+
     BackHandler(enabled = editingId != null) { editingId = null }
 
     Column(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(cs.background)
             .systemBarsPadding()
             .imePadding()
     ) {
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp)) {
-            Text("鬧鐘提醒", fontSize = 22.sp, fontWeight = FontWeight.Medium)
-            Text(
-                msg ?: nextText, fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp)
-            )
+        Text(
+            "鬧鐘提醒", fontSize = 30.sp, fontWeight = FontWeight.Medium, color = cs.onBackground,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 10.dp)
+        )
+
+        Column(
+            Modifier
+                .padding(horizontal = 12.dp)
+                .fillMaxWidth()
+                .clip(CardShape)
+                .background(cs.primaryContainer)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            if (next != null) {
+                val (i, t, n) = next
+                Text(
+                    "下一個響鈴・${Fmt.dayLabel(t.toLocalDate(), n.toLocalDate())}・${Fmt.until(n, t)}",
+                    fontSize = 12.sp, color = cs.onPrimaryContainer.copy(alpha = 0.85f)
+                )
+                Text(
+                    "${i.timeText()} ${i.label}".trim(),
+                    fontSize = 22.sp, fontWeight = FontWeight.Medium, color = cs.onPrimaryContainer
+                )
+            } else {
+                Text("沒有啟用中的鬧鐘", fontSize = 16.sp, color = cs.onPrimaryContainer)
+            }
+        }
+
+        msg?.let {
+            Text(it, fontSize = 13.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 20.dp, top = 6.dp))
         }
 
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             val allSelected = items.isNotEmpty() && selected.size == items.size
@@ -181,7 +244,7 @@ fun MainScreen(permTick: Int, version: String) {
             }) { Text("停用", fontSize = 13.sp) }
             TextButton(onClick = {
                 if (selected.isEmpty()) msg = "請先勾選要刪除的項目" else confirmDelete = true
-            }) { Text("刪除", fontSize = 13.sp, color = ErrorRed) }
+            }) { Text("刪除", fontSize = 13.sp, color = cs.error) }
         }
 
         if (needNotif) {
@@ -200,37 +263,39 @@ fun MainScreen(permTick: Int, version: String) {
             }
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-        LazyColumn(Modifier.weight(1f)) {
+        LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp)) {
             items(sorted, key = { it.id }) { item ->
-                if (editingId == item.id) {
-                    EditRow(
-                        item = item,
-                        onCommit = { u ->
-                            Store.upsert(u)
-                            afterSave(u)
-                            editingId = null
-                        },
-                        onCancel = { editingId = null },
-                    )
-                } else {
-                    ItemRow(
-                        item = item,
-                        checked = item.id in selected,
-                        onCheck = { c -> selected = if (c) selected + item.id else selected - item.id },
-                        onToggle = { on -> setEnabled(setOf(item.id), on) },
-                        onEdit = { editingId = item.id },
-                    )
+                Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                    if (editingId == item.id) {
+                        EditRow(
+                            item = item,
+                            onCommit = { u ->
+                                Store.upsert(u)
+                                afterSave(u)
+                                editingId = null
+                            },
+                            onCancel = { editingId = null },
+                            onTest = { testRing() },
+                        )
+                    } else {
+                        ItemRow(
+                            item = item,
+                            checked = item.id in selected,
+                            onCheck = { c -> selected = if (c) selected + item.id else selected - item.id },
+                            onToggle = { on -> setEnabled(setOf(item.id), on) },
+                            onEdit = { editingId = item.id },
+                        )
+                    }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }
             item {
-                QuickRow(onAdd = { i ->
-                    val u = i.copy(id = Store.nextId())
-                    Store.upsert(u)
-                    afterSave(u)
-                })
+                Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                    QuickRow(onAdd = { i ->
+                        val u = i.copy(id = Store.nextId())
+                        Store.upsert(u)
+                        afterSave(u)
+                    })
+                }
             }
             item {
                 Text(
@@ -239,6 +304,7 @@ fun MainScreen(permTick: Int, version: String) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
                 )
             }
         }
@@ -256,7 +322,7 @@ fun MainScreen(permTick: Int, version: String) {
                     selected = emptySet()
                     confirmDelete = false
                     msg = "已刪除"
-                }) { Text("刪除", color = ErrorRed) }
+                }) { Text("刪除", color = cs.error) }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("取消") } },
         )
@@ -268,12 +334,14 @@ private fun Banner(text: String, action: String, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFFFFF4D6))
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 14.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(text, fontSize = 13.sp, color = Color(0xFF5C4400), modifier = Modifier.weight(1f))
-        TextButton(onClick = onClick) { Text(action, fontSize = 13.sp) }
+        TextButton(onClick = onClick) { Text(action, fontSize = 13.sp, color = Color(0xFF8A5A00)) }
     }
 }
 
@@ -288,38 +356,63 @@ private fun ItemRow(
     onEdit: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    val textColor = if (item.enabled) cs.onSurface else cs.onSurface.copy(alpha = 0.4f)
-    val subColor = if (item.enabled) cs.onSurfaceVariant else cs.onSurfaceVariant.copy(alpha = 0.5f)
+    val a = if (item.enabled) 1f else 0.45f
     val today = LocalDate.now()
+    val sub = listOfNotNull(
+        if (item.mask == 0 && item.dateEpochDay != null) Fmt.dayLabel(LocalDate.ofEpochDay(item.dateEpochDay), today)
+        else if (item.mask == 0) "僅一次" else null,
+        item.label.ifBlank { "鬧鐘" },
+    ).joinToString("・")
+
     Row(
         Modifier
             .fillMaxWidth()
+            .clip(CardShape)
+            .background(cs.surface)
             .clickable(onClick = onEdit)
-            .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+            .padding(start = 4.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(checked = checked, onCheckedChange = onCheck)
-        Column(Modifier.width(88.dp)) {
-            Text(item.timeText(), fontSize = 24.sp, fontWeight = FontWeight.Medium, color = textColor)
-            if (item.mask == 0 && item.dateEpochDay != null) {
-                Text(Fmt.dayLabel(LocalDate.ofEpochDay(item.dateEpochDay), today), fontSize = 12.sp, color = subColor)
-            }
-        }
         Column(Modifier.weight(1f)) {
             Text(
-                item.label.ifBlank { "鬧鐘" }, fontSize = 16.sp, color = textColor,
-                maxLines = 1,
+                item.timeText(), fontSize = 28.sp, fontWeight = FontWeight.Medium,
+                color = cs.onSurface.copy(alpha = a),
             )
-            Text(item.repeatText(), fontSize = 12.sp, color = subColor)
+            Text(sub, fontSize = 13.sp, color = cs.onSurfaceVariant.copy(alpha = a), maxLines = 1)
+            if (item.mask != 0) {
+                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Fmt.DOW.forEachIndexed { i, c ->
+                        Dot(c.toString(), item.mask and (1 shl i) != 0, a, Modifier.size(22.dp), 11, null)
+                    }
+                }
+            }
         }
         Switch(checked = item.enabled, onCheckedChange = onToggle)
+    }
+}
+
+@Composable
+private fun Dot(text: String, on: Boolean, alpha: Float, modifier: Modifier, size: Int, onClick: (() -> Unit)?) {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        modifier
+            .clip(CircleShape)
+            .background(if (on) cs.primary.copy(alpha = alpha) else cs.surfaceVariant)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text, fontSize = size.sp,
+            color = if (on) cs.onPrimary else cs.onSurfaceVariant.copy(alpha = alpha),
+        )
     }
 }
 
 // ───────────────────────── 編輯列（只有這一列出現輸入欄） ─────────────────────────
 
 @Composable
-private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit) {
+private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, onTest: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val focus = LocalFocusManager.current
     val today = LocalDate.now()
@@ -376,8 +469,10 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit) 
     Column(
         Modifier
             .fillMaxWidth()
-            .background(cs.primary.copy(alpha = 0.07f))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .clip(CardShape)
+            .background(cs.surface)
+            .border(2.dp, cs.primary, CardShape)
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -397,7 +492,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit) 
                 onAction = { commit() },
             )
         }
-        timeError?.let { Text(it, color = ErrorRed, fontSize = 12.sp) }
+        timeError?.let { Text(it, color = cs.error, fontSize = 12.sp) }
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Chip("每天", mask == 127, Modifier.weight(1f)) { mask = 127; dateError = null }
@@ -405,10 +500,10 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit) 
             Chip("週末", mask == 96, Modifier.weight(1f)) { mask = 96; dateError = null }
             Chip("僅一次", mask == 0, Modifier.weight(1f)) { mask = 0 }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Fmt.DOW.forEachIndexed { i, c ->
                 val on = mask and (1 shl i) != 0
-                Chip(c.toString(), on, Modifier.weight(1f)) { mask = mask xor (1 shl i) }
+                Dot(c.toString(), on, 1f, Modifier.size(38.dp), 14) { mask = mask xor (1 shl i) }
             }
         }
 
@@ -417,7 +512,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit) 
                 Text("日期", fontSize = 13.sp, color = cs.onSurfaceVariant)
                 Cell(
                     value = date, onValueChange = { date = it; dateError = null },
-                    modifier = Modifier.width(140.dp), fr = dateFr,
+                    modifier = Modifier.width(150.dp), fr = dateFr,
                     placeholder = "留空＝下一次", imeAction = ImeAction.Next,
                     isError = dateError != null,
                     onFocusChange = { if (it) snoozeActive = false },
@@ -425,10 +520,10 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit) 
                 )
             }
         }
-        dateError?.let { Text(it, color = ErrorRed, fontSize = 12.sp) }
+        dateError?.let { Text(it, color = cs.error, fontSize = 12.sp) }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) {
+            Box {
                 Text(
                     if (snoozeActive) "稍後提醒 $snooze 分 ▾" else "稍後提醒 $snooze 分",
                     fontSize = 13.sp, color = cs.onSurfaceVariant,
@@ -449,6 +544,8 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit) 
                     }
                 }
             }
+            TextButton(onClick = onTest) { Text("測試響鈴", fontSize = 13.sp) }
+            Box(Modifier.weight(1f))
             TextButton(onClick = onCancel) { Text("取消", fontSize = 13.sp) }
             TextButton(onClick = { commit() }) { Text("確定", fontSize = 13.sp) }
         }
@@ -459,6 +556,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit) 
 
 @Composable
 private fun QuickRow(onAdd: (Item) -> Unit) {
+    val cs = MaterialTheme.colorScheme
     var tv by remember { mutableStateOf(TextFieldValue("")) }
     var err by remember { mutableStateOf<String?>(null) }
 
@@ -477,7 +575,13 @@ private fun QuickRow(onAdd: (Item) -> Unit) {
         }
     }
 
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(CardShape)
+            .border(1.dp, cs.outlineVariant, CardShape)
+            .padding(12.dp)
+    ) {
         Cell(
             value = tv, onValueChange = { tv = it; err = null },
             modifier = Modifier.fillMaxWidth(),
@@ -487,7 +591,7 @@ private fun QuickRow(onAdd: (Item) -> Unit) {
             onFocusChange = { if (!it) tryAdd() },
             onAction = { tryAdd() },
         )
-        err?.let { Text(it, color = ErrorRed, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
+        err?.let { Text(it, color = cs.error, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
     }
 }
 
@@ -509,9 +613,9 @@ private fun Cell(
     val cs = MaterialTheme.colorScheme
     var focused by remember { mutableStateOf(false) }
     val border = when {
-        isError -> ErrorRed
+        isError -> cs.error
         focused -> cs.primary
-        else -> cs.outlineVariant
+        else -> Color.Transparent
     }
     BasicTextField(
         value = value,
@@ -522,7 +626,7 @@ private fun Cell(
                 focused = it.isFocused
                 onFocusChange(it.isFocused)
             },
-        textStyle = TextStyle(fontSize = 16.sp, color = if (isError) ErrorRed else cs.onSurface),
+        textStyle = TextStyle(fontSize = 16.sp, color = if (isError) cs.error else cs.onSurface),
         singleLine = true,
         cursorBrush = SolidColor(cs.primary),
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
@@ -531,13 +635,13 @@ private fun Cell(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .background(Color.White, RoundedCornerShape(6.dp))
-                    .border(1.dp, border, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                    .background(cs.surfaceVariant, RoundedCornerShape(10.dp))
+                    .border(1.5.dp, border, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 11.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty()) {
-                    Text(placeholder, color = cs.onSurfaceVariant.copy(alpha = 0.6f), fontSize = 15.sp, maxLines = 1)
+                    Text(placeholder, color = cs.onSurfaceVariant.copy(alpha = 0.7f), fontSize = 15.sp, maxLines = 1)
                 }
                 inner()
             }
@@ -551,9 +655,8 @@ private fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier,
     Box(
         modifier
             .height(36.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) cs.primary else Color.White)
-            .border(1.dp, if (selected) cs.primary else cs.outlineVariant, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (selected) cs.primary else cs.surfaceVariant)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

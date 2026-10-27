@@ -27,6 +27,13 @@ class RingService : Service() {
         const val ACTION_STOP = "com.archie.alarm.STOP"
         const val ACTION_SNOOZE = "com.archie.alarm.SNOOZE"
         const val BROADCAST_STOPPED = "com.archie.alarm.RING_STOPPED"
+        const val TEST_ID = -999L
+
+        fun lookup(id: Long): Item? =
+            if (id == TEST_ID) {
+                val n = java.time.LocalTime.now()
+                Item(TEST_ID, n.hour, n.minute, "測試響鈴", 0, null, true, 1)
+            } else Store.get(id)
         private const val CHANNEL = "ring"
         private const val NOTIF_ID = 1001
         private const val MAX_RING_MS = 5 * 60_000L
@@ -57,7 +64,7 @@ class RingService : Service() {
             }
         }
 
-        val item = Store.get(id)
+        val item = lookup(id)
         try {
             startForegroundCompat(buildNotification(id, item))
         } catch (e: Exception) {

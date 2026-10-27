@@ -65,8 +65,8 @@ class RingActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val id = intent.getLongExtra("id", -1L)
-        val item = Store.get(id)
-        if (item == null || !RingService.running) {
+        val item = RingService.lookup(id)
+        if (item == null || (!RingService.running && id != RingService.TEST_ID)) {
             finish()
             return
         }
