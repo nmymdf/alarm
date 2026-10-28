@@ -30,6 +30,8 @@ class RingService : Service() {
         const val TEST_ID = -999L
         private const val CHANNEL = "ring"
         private const val NOTIF_ID = 1001
+        private const val MIRROR_ID = 1002
+        private const val CH_WATCH = "ring_watch"
         private const val MAX_RING_MS = 5 * 60_000L
 
         @Volatile
@@ -84,6 +86,7 @@ class RingService : Service() {
 
         stopSound()
         running = true
+        postWatchNotification(id, item, advMode)
         val soundOk = startSound()
         if (!soundOk) Fallback.post(this, item, "找不到可播放的鬧鐘音效，請檢查系統鬧鐘鈴聲")
         handler.removeCallbacksAndMessages(null)
@@ -141,6 +144,61 @@ class RingService : Service() {
         if (!adv) b.addAction(0, "稍後提醒", snoozePi)
         b.addAction(0, "關閉", stopPi)
         return b.build()
+    }
+
+    /**
+     * 給 Galaxy Watch 等手錶用的通知。
+     * 準時響鈴那則通知是「持續顯示」，手錶通常不會轉發，所以另外發一則一般通知，
+     * 手錶收到會震動，並可直接按「稍後提醒」「關閉」。
+     */
+    private fun postWatchNotification(id: Long, item: Item, adv: Boolean) {
+        try {
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(
+                NotificationChannel(CH_WATCH, "鬧鐘（同步到手錶）", NotificationManager.IMPORTANCE_HIGH).apply {
+                    setSound(null, null)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 400, 200, 400)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                }
+            )
+            val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            val open = PendingIntent.getActivity(
+                this, 0,
+                Intent(this, RingActivity::class.java).putExtra("id", id).putExtra("adv", adv)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                flags
+            )
+            val snoozePi = PendingIntent.getService(
+                this, 1,
+                Intent(this, RingService::class.java).setAction(ACTION_SNOOZE).putExtra("id", id), flags
+            )
+            val stopPi = PendingIntent.getService(
+                this, 2,
+                Intent(this, RingService::class.java).setAction(ACTION_STOP).putExtra("id", id), flags
+            )
+            val base = item.label.ifBlank { "鬧鐘" }
+            val title = if (adv) "提前提醒・$base" else base
+            val text = listOfNotNull(
+                if (adv) "${item.timeText()} 開始" else item.timeText(),
+                item.note.ifBlank { null },
+            ).joinToString("・")
+            val b = NotificationCompat.Builder(this, CH_WATCH)
+                .setSmallIcon(R.drawable.ic_stat_alarm)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setAutoCancel(false)
+                .setOngoing(false)
+                .setLocalOnly(false)
+                .setContentIntent(open)
+                .setDeleteIntent(stopPi)
+            if (!adv) b.addAction(0, "稍後提醒", snoozePi)
+            b.addAction(0, "關閉", stopPi)
+            nm.notify(MIRROR_ID, b.build())
+        } catch (_: Exception) {
+        }
     }
 
     /** 回傳是否成功播出聲音；會依序嘗試多個系統音效來源 */
@@ -218,6 +276,10 @@ class RingService : Service() {
         running = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         if (advMode && curId > 0) Advance.clear(this, curId)
+        try {
+            getSystemService(NotificationManager::class.java).cancel(MIRROR_ID)
+        } catch (_: Exception) {
+        }
         sendBroadcast(Intent(BROADCAST_STOPPED).setPackage(packageName))
         super.onDestroy()
     }
