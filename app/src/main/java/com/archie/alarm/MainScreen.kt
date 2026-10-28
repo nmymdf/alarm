@@ -72,6 +72,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -506,6 +509,8 @@ private fun PendingCard(item: Item, p: PendingAdv, onAck: () -> Unit) {
 @Composable
 private fun Dot(text: String, on: Boolean, alpha: Float, modifier: Modifier, size: Int, onClick: (() -> Unit)?) {
     val cs = MaterialTheme.colorScheme
+    // 圓圈裡的字不跟著系統字體放大，否則字會比圓圈高、位置跑掉
+    val fs = with(LocalDensity.current) { size.dp.toSp() }
     Box(
         modifier
             .clip(CircleShape)
@@ -514,8 +519,19 @@ private fun Dot(text: String, on: Boolean, alpha: Float, modifier: Modifier, siz
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text, fontSize = size.sp,
+            text,
+            fontSize = fs,
             color = if (on) cs.onPrimary else cs.onSurfaceVariant.copy(alpha = alpha),
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false,
+            style = TextStyle(
+                lineHeight = fs,
+                lineHeightStyle = LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Center,
+                    trim = LineHeightStyle.Trim.Both,
+                ),
+            ),
         )
     }
 }

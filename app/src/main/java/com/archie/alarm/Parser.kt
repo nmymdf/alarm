@@ -16,7 +16,7 @@ object Parser {
     private val enTime = Regex("(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)", RegexOption.IGNORE_CASE)
 
     private val cnNumRun = Regex(
-        "[零〇一二兩三四五六七八九十]+(?=[點点時时分月日號号])|(?<=[點点時时])[零〇一二兩三四五六七八九十]+|(?<=提前)[零〇一二兩三四五六七八九十]+"
+        "(?<![週周期拜])[零〇一二兩三四五六七八九十]+(?=[點点時时分月日號号])|(?<=[點点時时])[零〇一二兩三四五六七八九十]+|(?<=提前)[零〇一二兩三四五六七八九十]+|(?<=提前提醒)[零〇一二兩三四五六七八九十]+|(?<=提前通知)[零〇一二兩三四五六七八九十]+|[零〇一二兩三四五六七八九十]+(?=(?:個|个)?(?:分鐘|分钟|小時|小时|天|日)前)"
     )
 
     private fun cnDigit(c: Char): Int = when (c) {
@@ -164,11 +164,14 @@ object Parser {
 
         var adv = 0
         var imp = false
-        val am = grab(Regex("提前\\s*(\\d{1,3})\\s*(?:個)?\\s*(分鐘|分|小時|小时|天|日)"))
+        val unit = "(分鐘|分钟|分|小時|小时|天|日)"
+        val tail = "(?:\\s*(?:提醒我|提醒|通知我|通知|叫我))?"
+        val am = grab(Regex("提前(?:提醒|通知)?\\s*(\\d{1,3})\\s*(?:個|个)?\\s*" + unit + "(?:前)?" + tail))
+            ?: grab(Regex("(\\d{1,3})\\s*(?:個|个)?\\s*" + unit + "\\s*前(?:\\s*就)?" + tail))
         if (am != null) {
             val n = am.groupValues[1].toInt()
             adv = when (am.groupValues[2]) {
-                "分鐘", "分" -> n
+                "分鐘", "分钟", "分" -> n
                 "小時", "小时" -> n * 60
                 else -> n * 1440
             }
