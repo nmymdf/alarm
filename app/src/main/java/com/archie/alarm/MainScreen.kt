@@ -55,6 +55,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -211,11 +212,16 @@ fun MainScreen(permTick: Int, version: String) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("鬧鐘提醒", fontSize = 30.sp, fontWeight = FontWeight.Medium, color = cs.onBackground)
             Text(
-                "作者：ArchieKUO　v$version",
-                color = Gold, fontSize = 15.sp, fontStyle = FontStyle.Italic,
+                "鬧鐘提醒", fontSize = 28.sp, fontWeight = FontWeight.Medium, color = cs.onBackground,
                 maxLines = 1, softWrap = false,
+            )
+            FitText(
+                "作者：ArchieKUO v$version",
+                maxSize = 15f, minSize = 9f,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp),
             )
         }
 
@@ -636,7 +642,7 @@ private fun QuickRow(onAdd: (Item) -> Unit) {
             Cell(
                 value = tv, onValueChange = { tv = it; err = null },
                 modifier = Modifier.weight(1f),
-                placeholder = "週五 18:00 倒垃圾",
+                placeholder = "明天 7:00 起床",
                 imeAction = ImeAction.Done,
                 isError = err != null,
                 onFocusChange = { if (!it) tryAdd() },
@@ -686,6 +692,23 @@ private fun ActionButton(
             color = if (filled) cs.onPrimary else cs.onSurface,
         )
     }
+}
+
+/** 單行靠右的金色斜體文字；放不下時自動縮小字體，絕不被切掉 */
+@Composable
+private fun FitText(text: String, maxSize: Float, minSize: Float, modifier: Modifier = Modifier) {
+    var size by remember(text) { mutableFloatStateOf(maxSize) }
+    Text(
+        text,
+        modifier = modifier,
+        color = Gold,
+        fontSize = size.sp,
+        fontStyle = FontStyle.Italic,
+        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+        maxLines = 1,
+        softWrap = false,
+        onTextLayout = { if (it.hasVisualOverflow && size > minSize) size -= 0.5f },
+    )
 }
 
 @Composable
