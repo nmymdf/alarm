@@ -15,7 +15,33 @@ object Parser {
     private val cnTime = Regex("(上午|早上|凌晨|中午|下午|晚上)?\\s*(\\d{1,2})\\s*(?::(\\d{2})|[點点時时]\\s*(半|\\d{1,2})?\\s*分?)")
     private val enTime = Regex("(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)", RegexOption.IGNORE_CASE)
 
-    private fun norm(s: String): String {
+    private val cnNumRun = Regex(
+        "[零〇一二兩三四五六七八九十]+(?=[點点時时分月日號号])|(?<=[點点時时])[零〇一二兩三四五六七八九十]+"
+    )
+
+    private fun cnDigit(c: Char): Int = when (c) {
+        '零', '〇' -> 0; '一' -> 1; '二', '兩' -> 2; '三' -> 3; '四' -> 4
+        '五' -> 5; '六' -> 6; '七' -> 7; '八' -> 8; '九' -> 9; else -> 0
+    }
+
+    private fun cnToInt(s: String): Int {
+        val i = s.indexOf('十')
+        if (i >= 0) {
+            val tens = if (i == 0) 1 else cnDigit(s[0])
+            val ones = if (i == s.length - 1) 0 else cnDigit(s[i + 1])
+            return tens * 10 + ones
+        }
+        var v = 0
+        for (c in s) v = v * 10 + cnDigit(c)
+        return v
+    }
+
+    /** 語音常回「下午三點二十分」：只轉換時間、日期周圍的中文數字，內容文字不動 */
+    private fun cnNumbers(s: String): String =
+        cnNumRun.replace(s) { cnToInt(it.value).toString() }
+
+    private fun norm(input: String): String {
+        val s = cnNumbers(input)
         val sb = StringBuilder()
         for (c in s) {
             sb.append(

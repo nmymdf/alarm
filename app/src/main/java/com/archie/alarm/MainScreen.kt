@@ -1,7 +1,17 @@
 package com.archie.alarm
 
 import android.Manifest
+import android.app.Activity
 import android.app.NotificationManager
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -194,10 +204,20 @@ fun MainScreen(permTick: Int, version: String) {
             .systemBarsPadding()
             .imePadding()
     ) {
-        Text(
-            "鬧鐘提醒", fontSize = 30.sp, fontWeight = FontWeight.Medium, color = cs.onBackground,
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 10.dp)
-        )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("鬧鐘提醒", fontSize = 30.sp, fontWeight = FontWeight.Medium, color = cs.onBackground)
+            Text(
+                "作者：ArchieKUO　v$version",
+                color = Gold, fontSize = 15.sp, fontStyle = FontStyle.Italic,
+                maxLines = 1, softWrap = false,
+            )
+        }
 
         Column(
             Modifier
@@ -297,16 +317,7 @@ fun MainScreen(permTick: Int, version: String) {
                     })
                 }
             }
-            item {
-                Text(
-                    "作者：ArchieKUO　v$version",
-                    color = Gold, fontSize = 12.sp, fontStyle = FontStyle.Italic,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                )
-            }
+            item { Box(Modifier.height(16.dp)) }
         }
     }
 
@@ -522,18 +533,22 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
         }
         dateError?.let { Text(it, color = cs.error, fontSize = 12.sp) }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
             Box {
                 Text(
                     if (snoozeActive) "稍後提醒 $snooze 分 ▾" else "稍後提醒 $snooze 分",
-                    fontSize = 13.sp, color = cs.onSurfaceVariant,
+                    fontSize = 14.sp, color = cs.onSurfaceVariant, maxLines = 1, softWrap = false,
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .clickable {
                             focus.clearFocus()
                             if (!snoozeActive) snoozeActive = true else menuOpen = true
                         }
-                        .padding(vertical = 8.dp, horizontal = 2.dp),
+                        .padding(vertical = 10.dp, horizontal = 2.dp),
                 )
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     listOf(5, 10, 15, 20, 30).forEach { m ->
@@ -544,10 +559,18 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
                     }
                 }
             }
-            TextButton(onClick = onTest) { Text("測試響鈴", fontSize = 13.sp) }
-            Box(Modifier.weight(1f))
-            TextButton(onClick = onCancel) { Text("取消", fontSize = 13.sp) }
-            TextButton(onClick = { commit() }) { Text("確定", fontSize = 13.sp) }
+            Text(
+                "測試響鈴", fontSize = 14.sp, color = cs.primary, maxLines = 1, softWrap = false,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(onClick = onTest)
+                    .padding(vertical = 10.dp, horizontal = 2.dp),
+            )
+        }
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionButton("取消", false, Modifier.weight(1f), onCancel)
+            ActionButton("儲存", true, Modifier.weight(2f)) { commit() }
         }
     }
 }
@@ -557,16 +580,18 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
 @Composable
 private fun QuickRow(onAdd: (Item) -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val ctx = LocalContext.current
     var tv by remember { mutableStateOf(TextFieldValue("")) }
     var err by remember { mutableStateOf<String?>(null) }
 
-    fun tryAdd() {
-        if (tv.text.isBlank()) {
+    fun tryAdd(text: String = tv.text) {
+        if (text.isBlank()) {
             err = null
             return
         }
-        val r = Parser.parseQuick(tv.text, LocalDateTime.now())
+        val r = Parser.parseQuick(text, LocalDateTime.now())
         if (r.item == null) {
+            tv = TextFieldValue(text, TextRange(text.length))
             err = r.error
         } else {
             onAdd(r.item)
@@ -575,23 +600,110 @@ private fun QuickRow(onAdd: (Item) -> Unit) {
         }
     }
 
+    val speech = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK) {
+            val list = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).orEmpty()
+            if (list.isNotEmpty()) {
+                val now = LocalDateTime.now()
+                val best = list.firstOrNull { Parser.parseQuick(it, now).item != null } ?: list.first()
+                tryAdd(best)
+            }
+        }
+    }
+
+    fun startVoice() {
+        try {
+            speech.launch(
+                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-TW")
+                    .putExtra(RecognizerIntent.EXTRA_PROMPT, "例如：明天下午三點 打電話給銀行")
+                    .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            )
+        } catch (_: Exception) {
+            err = "這支手機沒有語音辨識服務，請改用鍵盤上的麥克風"
+        }
+    }
+
     Column(
         Modifier
             .fillMaxWidth()
             .clip(CardShape)
-            .border(1.dp, cs.outlineVariant, CardShape)
+            .background(cs.surface)
             .padding(12.dp)
     ) {
-        Cell(
-            value = tv, onValueChange = { tv = it; err = null },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = "＋ 輸入「週五 18:00 倒垃圾」按 Enter 新增",
-            imeAction = ImeAction.Done,
-            isError = err != null,
-            onFocusChange = { if (!it) tryAdd() },
-            onAction = { tryAdd() },
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Cell(
+                value = tv, onValueChange = { tv = it; err = null },
+                modifier = Modifier.weight(1f),
+                placeholder = "週五 18:00 倒垃圾",
+                imeAction = ImeAction.Done,
+                isError = err != null,
+                onFocusChange = { if (!it) tryAdd() },
+                onAction = { tryAdd() },
+            )
+            Box(
+                Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(cs.surfaceVariant)
+                    .clickable { startVoice() },
+                contentAlignment = Alignment.Center,
+            ) { MicIcon(cs.primary) }
+            ActionButton("新增", true, Modifier.width(76.dp), height = 46.dp) { tryAdd() }
+        }
+        err?.let { Text(it, color = cs.error, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp, start = 4.dp)) }
+    }
+}
+
+@Composable
+private fun ActionButton(
+    text: String,
+    filled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) = ActionButton(text, filled, modifier, 48.dp, onClick)
+
+@Composable
+private fun ActionButton(
+    text: String,
+    filled: Boolean,
+    modifier: Modifier,
+    height: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        modifier
+            .height(height)
+            .clip(RoundedCornerShape(height / 2))
+            .background(if (filled) cs.primary else cs.surfaceVariant)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false,
+            color = if (filled) cs.onPrimary else cs.onSurface,
         )
-        err?.let { Text(it, color = cs.error, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
+    }
+}
+
+@Composable
+private fun MicIcon(color: Color) {
+    Canvas(Modifier.size(22.dp)) {
+        val w = size.width
+        val h = size.height
+        val sw = w * 0.09f
+        drawRoundRect(
+            color, topLeft = Offset(w * 0.375f, h * 0.08f), size = Size(w * 0.25f, h * 0.46f),
+            cornerRadius = CornerRadius(w * 0.125f),
+        )
+        drawArc(
+            color, startAngle = 0f, sweepAngle = 180f, useCenter = false,
+            topLeft = Offset(w * 0.21f, h * 0.28f), size = Size(w * 0.58f, h * 0.46f),
+            style = Stroke(sw, cap = StrokeCap.Round),
+        )
+        drawLine(color, Offset(w * 0.5f, h * 0.74f), Offset(w * 0.5f, h * 0.92f), strokeWidth = sw, cap = StrokeCap.Round)
     }
 }
 
