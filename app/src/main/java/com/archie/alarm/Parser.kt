@@ -16,7 +16,7 @@ object Parser {
     private val enTime = Regex("(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)", RegexOption.IGNORE_CASE)
 
     private val cnNumRun = Regex(
-        "[零〇一二兩三四五六七八九十]+(?=[點点時时分月日號号])|(?<=[點点時时])[零〇一二兩三四五六七八九十]+"
+        "[零〇一二兩三四五六七八九十]+(?=[點点時时分月日號号])|(?<=[點点時时])[零〇一二兩三四五六七八九十]+|(?<=提前)[零〇一二兩三四五六七八九十]+"
     )
 
     private fun cnDigit(c: Char): Int = when (c) {
@@ -145,21 +145,42 @@ object Parser {
         else -> "${d.monthValue}/${d.dayOfMonth}"
     }
 
-    /** 空白列用：「週五 18:00 倒垃圾」「每天 7點 起床」「10/28 下午3點半 開會」 */
+    /** 空白列用：「週五 18:00 倒垃圾」「明天 15:00 開會 提前30分 備註 帶簡報」 */
     fun parseQuick(input: String, now: LocalDateTime): Quick {
         var s = norm(input).trim()
-        val t = findTime(s) ?: return Quick(null, "找不到時間，試試「明天 15:00 開會」")
-        s = s.removeRange(t.range)
-        val today = now.toLocalDate()
-        val tod = LocalTime.of(t.h, t.m)
-        var mask = 0
-        var date: LocalDate? = null
+
+        var note = ""
+        val ni = s.indexOf("備註")
+        if (ni >= 0) {
+            note = s.substring(ni + 2).trim { it.isWhitespace() || it in ":：，," }
+            s = s.substring(0, ni)
+        }
 
         fun grab(re: Regex): MatchResult? {
             val m = re.find(s) ?: return null
             s = s.removeRange(m.range)
             return m
         }
+
+        var adv = 0
+        var imp = false
+        val am = grab(Regex("提前\\s*(\\d{1,3})\\s*(?:個)?\\s*(分鐘|分|小時|小时|天|日)"))
+        if (am != null) {
+            val n = am.groupValues[1].toInt()
+            adv = when (am.groupValues[2]) {
+                "分鐘", "分" -> n
+                "小時", "小时" -> n * 60
+                else -> n * 1440
+            }
+            if (grab(Regex("重要")) != null) imp = true
+        }
+
+        val t = findTime(s) ?: return Quick(null, "找不到時間，試試「明天 15:00 開會」")
+        s = s.removeRange(t.range)
+        val today = now.toLocalDate()
+        val tod = LocalTime.of(t.h, t.m)
+        var mask = 0
+        var date: LocalDate? = null
 
         if (grab(Regex("每(?:天|日)")) != null) {
             mask = 127
@@ -216,7 +237,8 @@ object Parser {
         return Quick(
             Item(
                 id = 0, hour = t.h, minute = t.m, label = label, mask = mask,
-                dateEpochDay = date?.toEpochDay(), enabled = true, snoozeMin = 10
+                dateEpochDay = date?.toEpochDay(), enabled = true, snoozeMin = 10,
+                note = note, advanceMin = adv, advanceImportant = imp,
             )
         )
     }

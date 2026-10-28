@@ -65,6 +65,7 @@ class RingActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val id = intent.getLongExtra("id", -1L)
+        val adv = intent.getBooleanExtra("adv", false)
         val item = RingService.lookup(id)
         if (item == null || (!RingService.running && id != RingService.TEST_ID)) {
             finish()
@@ -78,8 +79,11 @@ class RingActivity : ComponentActivity() {
         setContent {
             AlarmTheme {
                 RingScreen(
+                    headline = if (adv) "提前提醒" else null,
                     time = item.timeText(),
                     label = item.label,
+                    note = item.note,
+                    allowSnooze = !adv,
                     snoozeMin = item.snoozeMin,
                     version = version,
                     onSnooze = {
@@ -108,8 +112,11 @@ class RingActivity : ComponentActivity() {
 
 @Composable
 fun RingScreen(
+    headline: String?,
     time: String,
     label: String,
+    note: String,
+    allowSnooze: Boolean,
     snoozeMin: Int,
     version: String,
     onSnooze: () -> Unit,
@@ -124,6 +131,12 @@ fun RingScreen(
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 56.dp)) {
+            if (headline != null) {
+                Text(
+                    "$headline・開始時間", color = Color(0xFF9FB4F5), fontSize = 16.sp,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
             Text(time, color = Color.White, fontSize = 72.sp, fontWeight = FontWeight.Medium)
             if (label.isNotBlank()) {
                 Text(
@@ -131,23 +144,31 @@ fun RingScreen(
                     textAlign = TextAlign.Center, modifier = Modifier.padding(top = 12.dp)
                 )
             }
+            if (note.isNotBlank()) {
+                Text(
+                    note, color = Color(0xFFA6ABB5), fontSize = 18.sp,
+                    textAlign = TextAlign.Center, modifier = Modifier.padding(top = 10.dp)
+                )
+            }
         }
         Column(verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(64.dp)
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(Color(0xFF2B3139))
-                    .clickable(onClick = onSnooze),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("稍後提醒 $snoozeMin 分鐘", color = Color.White, fontSize = 18.sp)
+            if (allowSnooze) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(64.dp)
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Color(0xFF2B3139))
+                        .clickable(onClick = onSnooze),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("稍後提醒 $snoozeMin 分鐘", color = Color.White, fontSize = 18.sp)
+                }
             }
             HoldButton("按住 1 秒關閉", onDone = onDismiss)
             Text(
                 "作者：ArchieKUO　v$version",
-                color = Gold, fontSize = 12.sp, fontStyle = FontStyle.Italic,
+                color = Gold, fontSize = 13.sp, fontStyle = FontStyle.Italic,
                 modifier = Modifier.padding(top = 8.dp),
             )
         }

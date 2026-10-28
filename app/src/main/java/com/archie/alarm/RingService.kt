@@ -28,29 +28,32 @@ class RingService : Service() {
         const val ACTION_SNOOZE = "com.archie.alarm.SNOOZE"
         const val BROADCAST_STOPPED = "com.archie.alarm.RING_STOPPED"
         const val TEST_ID = -999L
-
-        fun lookup(id: Long): Item? =
-            if (id == TEST_ID) {
-                val n = java.time.LocalTime.now()
-                Item(TEST_ID, n.hour, n.minute, "測試響鈴", 0, null, true, 1)
-            } else Store.get(id)
         private const val CHANNEL = "ring"
         private const val NOTIF_ID = 1001
         private const val MAX_RING_MS = 5 * 60_000L
 
         @Volatile
         var running = false
+
+        fun lookup(id: Long): Item? =
+            if (id == TEST_ID) {
+                val n = java.time.LocalTime.now()
+                Item(TEST_ID, n.hour, n.minute, "測試響鈴", 0, null, true, 1)
+            } else Store.get(id)
     }
 
     private var player: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private val handler = Handler(Looper.getMainLooper())
+    private var advMode = false
+    private var curId = -1L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Store.init(this)
+        Pending.init(this)
         val id = intent?.getLongExtra("id", -1L) ?: -1L
         when (intent?.action) {
             ACTION_STOP -> {
@@ -64,9 +67,11 @@ class RingService : Service() {
             }
         }
 
+        advMode = intent?.getBooleanExtra("adv", false) == true
+        curId = id
         val item = lookup(id)
         try {
-            startForegroundCompat(buildNotification(id, item))
+            startForegroundCompat(buildNotification(id, item, advMode))
         } catch (e: Exception) {
             item?.let { Fallback.post(this, it, "響鈴服務無法前景執行：${e.javaClass.simpleName}") }
             stopSelf()
@@ -94,7 +99,7 @@ class RingService : Service() {
         }
     }
 
-    private fun buildNotification(id: Long, item: Item?): Notification {
+    private fun buildNotification(id: Long, item: Item?, adv: Boolean): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "鬧鐘響鈴", NotificationManager.IMPORTANCE_HIGH).apply {
@@ -106,7 +111,7 @@ class RingService : Service() {
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         val full = PendingIntent.getActivity(
             this, 0,
-            Intent(this, RingActivity::class.java).putExtra("id", id)
+            Intent(this, RingActivity::class.java).putExtra("id", id).putExtra("adv", adv)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             flags
         )
@@ -118,19 +123,24 @@ class RingService : Service() {
             this, 2,
             Intent(this, RingService::class.java).setAction(ACTION_STOP).putExtra("id", id), flags
         )
-        val title = item?.label?.ifBlank { null } ?: "鬧鐘"
-        return NotificationCompat.Builder(this, CHANNEL)
+        val base = item?.label?.ifBlank { null } ?: "鬧鐘"
+        val title = if (adv) "提前提醒・$base" else base
+        val text = listOfNotNull(
+            item?.timeText()?.let { if (adv) "$it 開始" else it },
+            item?.note?.ifBlank { null },
+        ).joinToString("・")
+        val b = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_alarm)
             .setContentTitle(title)
-            .setContentText(item?.timeText() ?: "")
+            .setContentText(text)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOngoing(true)
             .setFullScreenIntent(full, true)
             .setContentIntent(full)
-            .addAction(0, "稍後提醒", snoozePi)
-            .addAction(0, "關閉", stopPi)
-            .build()
+        if (!adv) b.addAction(0, "稍後提醒", snoozePi)
+        b.addAction(0, "關閉", stopPi)
+        return b.build()
     }
 
     /** 回傳是否成功播出聲音；會依序嘗試多個系統音效來源 */
@@ -207,6 +217,7 @@ class RingService : Service() {
         stopSound()
         running = false
         stopForeground(STOP_FOREGROUND_REMOVE)
+        if (advMode && curId > 0) Advance.clear(this, curId)
         sendBroadcast(Intent(BROADCAST_STOPPED).setPackage(packageName))
         super.onDestroy()
     }

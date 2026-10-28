@@ -4,27 +4,47 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.media.AudioAttributes
-import android.media.RingtoneManager
-import androidx.core.app.NotificationCompat
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
 class AlarmApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Store.init(this)
+        Pending.init(this)
     }
 }
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         Store.init(ctx)
+        Pending.init(ctx)
         val id = intent.getLongExtra("id", -1L)
-        val snooze = intent.getBooleanExtra("snooze", false)
+        when (intent.getIntExtra("kind", Scheduler.MAIN)) {
+            Scheduler.ACK -> {
+                Advance.clear(ctx, id)
+                return
+            }
+            Scheduler.NAG -> {
+                Advance.nag(ctx, id)
+                return
+            }
+            Scheduler.ADV -> {
+                val item = Store.get(id) ?: return
+                if (item.enabled) Advance.fire(ctx, item, intent.getLongExtra("at", 0L))
+                return
+            }
+        }
+
+        // 準時響鈴（含稍後提醒再響）
+        val snooze = intent.getIntExtra("kind", Scheduler.MAIN) == Scheduler.SNOOZE
         val item = Store.get(id) ?: return
+        Advance.clear(ctx, id)
         if (!snooze) {
             if (item.mask == 0) {
                 Store.upsert(item.copy(enabled = false))
@@ -39,6 +59,15 @@ class AlarmReceiver : BroadcastReceiver() {
         } catch (e: Exception) {
             Fallback.post(ctx, item, "無法啟動響鈴服務：${e.javaClass.simpleName}")
         }
+    }
+}
+
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        Store.init(ctx)
+        Pending.init(ctx)
+        Scheduler.scheduleAll(ctx)
+        Advance.restore(ctx)
     }
 }
 
@@ -77,12 +106,5 @@ object Fallback {
             nm.notify(2000 + item.id.toInt(), n)
         } catch (_: Exception) {
         }
-    }
-}
-
-class BootReceiver : BroadcastReceiver() {
-    override fun onReceive(ctx: Context, intent: Intent) {
-        Store.init(ctx)
-        Scheduler.scheduleAll(ctx)
     }
 }

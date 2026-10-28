@@ -56,6 +56,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.draw.alpha
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -130,6 +133,14 @@ fun MainScreen(permTick: Int, version: String) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val items by Store.items.collectAsState()
+    val pendingList by Pending.list.collectAsState()
+    var tick by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            tick++
+        }
+    }
     var editingId by remember { mutableStateOf<Long?>(null) }
     var selected by remember { mutableStateOf(setOf<Long>()) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -144,7 +155,7 @@ fun MainScreen(permTick: Int, version: String) {
             if (it.enabled) k else k + far
         }
     }
-    val next = remember(items) {
+    val next = remember(items, tick) {
         val n = LocalDateTime.now()
         items.filter { it.enabled }
             .mapNotNull { i -> i.nextTrigger(n)?.let { t -> Triple(i, t, t.atZone(zone).toEpochSecond()) } }
@@ -162,9 +173,13 @@ fun MainScreen(permTick: Int, version: String) {
     }
 
     fun afterSave(i: Item) {
+        Advance.clear(ctx, i.id)
         Scheduler.schedule(ctx, i)
         val n = LocalDateTime.now()
-        msg = i.nextTrigger(n)?.let { "已儲存，${Fmt.until(n, it)}響鈴" } ?: "已儲存"
+        val base = i.nextTrigger(n)?.let { "已儲存，${Fmt.until(n, it)}響鈴" } ?: "已儲存"
+        msg = if (i.advanceMin > 0 && i.nextTrigger(n) != null && i.nextAdvance(n) == null) {
+            "$base（提前時間已過，這次不提前）"
+        } else base
     }
 
     fun setEnabled(ids: Set<Long>, on: Boolean) {
@@ -178,6 +193,7 @@ fun MainScreen(permTick: Int, version: String) {
             }
             val u = it.copy(enabled = on)
             Store.upsert(u)
+            if (!on) Advance.clear(ctx, id)
             Scheduler.schedule(ctx, u)
         }
         msg = if (skipped > 0) "有 $skipped 筆時間已過，請先改日期" else null
@@ -235,9 +251,11 @@ fun MainScreen(permTick: Int, version: String) {
         ) {
             if (next != null) {
                 val (i, t, n) = next
+                val a = i.nextAdvance(n)
                 Text(
-                    "下一個響鈴・${Fmt.dayLabel(t.toLocalDate(), n.toLocalDate())}・${Fmt.until(n, t)}",
-                    fontSize = 12.sp, color = cs.onPrimaryContainer.copy(alpha = 0.85f)
+                    "下一個響鈴・${Fmt.dayLabel(t.toLocalDate(), n.toLocalDate())}・${Fmt.until(n, t)}" +
+                        (a?.let { "・提前提醒 %02d:%02d".format(it.hour, it.minute) } ?: ""),
+                    fontSize = 12.sp, color = cs.onPrimaryContainer.copy(alpha = 0.85f), maxLines = 2,
                 )
                 Text(
                     "${i.timeText()} ${i.label}".trim(),
@@ -245,6 +263,13 @@ fun MainScreen(permTick: Int, version: String) {
                 )
             } else {
                 Text("沒有啟用中的鬧鐘", fontSize = 16.sp, color = cs.onPrimaryContainer)
+            }
+        }
+
+        pendingList.forEach { p ->
+            val pi = items.firstOrNull { x -> x.id == p.id }
+            if (pi != null && p.eventMillis > System.currentTimeMillis()) {
+                PendingCard(pi, p) { Advance.clear(ctx, p.id) }
             }
         }
 
@@ -334,7 +359,10 @@ fun MainScreen(permTick: Int, version: String) {
             text = { Text("刪除後無法復原。") },
             confirmButton = {
                 TextButton(onClick = {
-                    selected.forEach { Scheduler.cancel(ctx, it) }
+                    selected.forEach {
+                        Scheduler.cancel(ctx, it)
+                        Advance.clear(ctx, it)
+                    }
                     Store.delete(selected)
                     selected = emptySet()
                     confirmDelete = false
@@ -396,7 +424,19 @@ private fun ItemRow(
                 item.timeText(), fontSize = 28.sp, fontWeight = FontWeight.Medium,
                 color = cs.onSurface.copy(alpha = a),
             )
-            Text(sub, fontSize = 13.sp, color = cs.onSurfaceVariant.copy(alpha = a), maxLines = 1)
+            Text(sub, fontSize = 14.sp, color = cs.onSurfaceVariant.copy(alpha = a), maxLines = 1)
+            if (item.note.isNotBlank()) {
+                Text(
+                    item.note, fontSize = 12.sp, color = cs.onSurfaceVariant.copy(alpha = 0.75f * a),
+                    maxLines = 2, modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            if (item.advanceMin > 0) {
+                Tag(
+                    "提前 ${Fmt.advShort(item.advanceMin)}" + if (item.advanceImportant) "・重要" else "",
+                    item.advanceImportant, a, Modifier.padding(top = 6.dp),
+                )
+            }
             if (item.mask != 0) {
                 Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Fmt.DOW.forEachIndexed { i, c ->
@@ -406,6 +446,60 @@ private fun ItemRow(
             }
         }
         Switch(checked = item.enabled, onCheckedChange = onToggle)
+    }
+}
+
+@Composable
+private fun Tag(text: String, important: Boolean, alpha: Float, modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    val c = if (important) cs.error else cs.primary
+    Text(
+        text, fontSize = 11.sp, color = c.copy(alpha = alpha), maxLines = 1,
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(c.copy(alpha = 0.14f))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    )
+}
+
+@Composable
+private fun PendingCard(item: Item, p: PendingAdv, onAck: () -> Unit) {
+    val now = System.currentTimeMillis()
+    val detail = listOfNotNull(
+        item.note.ifBlank { null },
+        Fmt.untilMillis(now, p.eventMillis) + "開始",
+    ).joinToString("・")
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(CardShape)
+            .background(Color(0xFFFFF4D6))
+            .border(1.5.dp, Color(0xFFE8B84A), CardShape)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("待確認的提前提醒", fontSize = 12.sp, color = Color(0xFF8A5A00))
+            Text(
+                "${item.timeText()} ${item.label.ifBlank { "鬧鐘" }}",
+                fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color(0xFF5C4400),
+                modifier = Modifier.padding(top = 2.dp), maxLines = 1,
+            )
+            Text(detail, fontSize = 12.sp, color = Color(0xFF7A6320), modifier = Modifier.padding(top = 2.dp), maxLines = 2)
+        }
+        Box(
+            Modifier
+                .width(84.dp)
+                .height(42.dp)
+                .clip(RoundedCornerShape(21.dp))
+                .background(Color(0xFF8A5A00))
+                .clickable(onClick = onAck),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("知道了", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, softWrap = false)
+        }
     }
 }
 
@@ -429,6 +523,18 @@ private fun Dot(text: String, on: Boolean, alpha: Float, modifier: Modifier, siz
 // ───────────────────────── 編輯列（只有這一列出現輸入欄） ─────────────────────────
 
 @Composable
+private fun FormRow(label: String, content: @Composable () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
+        Box(Modifier.width(200.dp)) { content() }
+    }
+}
+
+@Composable
 private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, onTest: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val focus = LocalFocusManager.current
@@ -437,20 +543,33 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
     val t0 = item.timeText()
     var time by remember(item.id) { mutableStateOf(TextFieldValue(t0, TextRange(0, t0.length))) }
     var label by remember(item.id) { mutableStateOf(TextFieldValue(item.label, TextRange(item.label.length))) }
+    var note by remember(item.id) { mutableStateOf(TextFieldValue(item.note, TextRange(item.note.length))) }
     val d0 = item.dateEpochDay?.let { Parser.formatDate(LocalDate.ofEpochDay(it), today) } ?: ""
     var date by remember(item.id) { mutableStateOf(TextFieldValue(d0, TextRange(d0.length))) }
     var mask by remember(item.id) { mutableIntStateOf(item.mask) }
     var snooze by remember(item.id) { mutableIntStateOf(item.snoozeMin) }
+    var advMin by remember(item.id) { mutableIntStateOf(item.advanceMin) }
+    var advImp by remember(item.id) { mutableStateOf(item.advanceImportant) }
     var snoozeActive by remember(item.id) { mutableStateOf(false) }
     var menuOpen by remember(item.id) { mutableStateOf(false) }
+    var advActive by remember(item.id) { mutableStateOf(false) }
+    var advMenu by remember(item.id) { mutableStateOf(false) }
     var timeError by remember(item.id) { mutableStateOf<String?>(null) }
     var dateError by remember(item.id) { mutableStateOf<String?>(null) }
 
     val timeFr = remember { FocusRequester() }
     val dateFr = remember { FocusRequester() }
     val labelFr = remember { FocusRequester() }
+    val noteFr = remember { FocusRequester() }
 
     LaunchedEffect(item.id) { timeFr.requestFocus() }
+
+    fun onCellFocus(focused: Boolean) {
+        if (focused) {
+            snoozeActive = false
+            advActive = false
+        }
+    }
 
     fun commit() {
         val tm = Parser.parseTime(time.text)
@@ -470,9 +589,10 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
             epoch = d.toEpochDay()
         }
         val u = item.copy(
-            hour = tm.first, minute = tm.second, label = label.text.trim(),
+            hour = tm.first, minute = tm.second, label = label.text.trim(), note = note.text.trim(),
             mask = mask, dateEpochDay = if (mask == 0) epoch else null,
             snoozeMin = snooze, enabled = true,
+            advanceMin = advMin, advanceImportant = advMin > 0 && advImp,
         )
         if (u.nextTrigger(LocalDateTime.now()) == null) {
             dateError = "這個時間已經過了"
@@ -490,7 +610,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
             .background(cs.surface)
             .border(2.dp, cs.primary, CardShape)
             .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Cell(
@@ -498,18 +618,26 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
                 modifier = Modifier.width(104.dp), fr = timeFr,
                 placeholder = "07:30", keyboardType = KeyboardType.Number, imeAction = ImeAction.Next,
                 isError = timeError != null,
-                onFocusChange = { if (it) snoozeActive = false },
+                onFocusChange = { onCellFocus(it) },
                 onAction = { if (mask == 0) dateFr.requestFocus() else labelFr.requestFocus() },
             )
             Cell(
                 value = label, onValueChange = { label = it },
                 modifier = Modifier.weight(1f), fr = labelFr,
-                placeholder = "內容（可留空）", imeAction = ImeAction.Done,
-                onFocusChange = { if (it) snoozeActive = false },
-                onAction = { commit() },
+                placeholder = "內容（可留空）", imeAction = ImeAction.Next,
+                onFocusChange = { onCellFocus(it) },
+                onAction = { noteFr.requestFocus() },
             )
         }
         timeError?.let { Text(it, color = cs.error, fontSize = 12.sp) }
+
+        Cell(
+            value = note, onValueChange = { note = it },
+            modifier = Modifier.fillMaxWidth(), fr = noteFr,
+            placeholder = "備註（可留空）", imeAction = ImeAction.Done,
+            onFocusChange = { onCellFocus(it) },
+            onAction = { commit() },
+        )
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Chip("每天", mask == 127, Modifier.weight(1f)) { mask = 127; dateError = null }
@@ -525,19 +653,67 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
         }
 
         if (mask == 0) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("日期", fontSize = 13.sp, color = cs.onSurfaceVariant)
+            FormRow("日期") {
                 Cell(
                     value = date, onValueChange = { date = it; dateError = null },
-                    modifier = Modifier.width(150.dp), fr = dateFr,
+                    modifier = Modifier.fillMaxWidth(), fr = dateFr,
                     placeholder = "留空＝下一次", imeAction = ImeAction.Next,
                     isError = dateError != null,
-                    onFocusChange = { if (it) snoozeActive = false },
+                    onFocusChange = { onCellFocus(it) },
                     onAction = { labelFr.requestFocus() },
                 )
             }
         }
         dateError?.let { Text(it, color = cs.error, fontSize = 12.sp) }
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(cs.outlineVariant))
+
+        FormRow("提前提醒") {
+            Box {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(cs.surfaceVariant)
+                        .clickable {
+                            focus.clearFocus()
+                            snoozeActive = false
+                            if (!advActive) advActive = true else advMenu = true
+                        }
+                        .padding(horizontal = 12.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(Fmt.advBefore(advMin), fontSize = 15.sp, color = cs.onSurface, maxLines = 1)
+                    if (advActive) Text("▾", fontSize = 13.sp, color = cs.onSurfaceVariant)
+                }
+                DropdownMenu(expanded = advMenu, onDismissRequest = { advMenu = false }) {
+                    Fmt.ADVANCE_CHOICES.forEach { m ->
+                        DropdownMenuItem(
+                            text = { Text(Fmt.advBefore(m)) },
+                            onClick = { advMin = m; advMenu = false },
+                        )
+                    }
+                }
+            }
+        }
+        FormRow("提前強度") {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .alpha(if (advMin > 0) 1f else 0.4f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Chip("一般", !advImp, Modifier.weight(1f)) { if (advMin > 0) advImp = false }
+                Chip("重要", advImp, Modifier.weight(1f)) { if (advMin > 0) advImp = true }
+            }
+        }
+        Text(
+            "一般：通知留著，沒確認每 5 分再響（最多 3 次）\n重要：像鬧鐘一樣響，要按住關閉",
+            fontSize = 12.sp, lineHeight = 19.sp, color = cs.onSurfaceVariant.copy(alpha = 0.8f),
+        )
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(cs.outlineVariant))
 
         Row(
             Modifier.fillMaxWidth(),
@@ -552,6 +728,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
                         .clip(RoundedCornerShape(6.dp))
                         .clickable {
                             focus.clearFocus()
+                            advActive = false
                             if (!snoozeActive) snoozeActive = true else menuOpen = true
                         }
                         .padding(vertical = 10.dp, horizontal = 2.dp),
