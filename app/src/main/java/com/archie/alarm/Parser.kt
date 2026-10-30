@@ -16,7 +16,7 @@ object Parser {
     private val enTime = Regex("(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)", RegexOption.IGNORE_CASE)
 
     private val cnNumRun = Regex(
-        "(?<![週周期拜])[零〇一二兩三四五六七八九十]+(?=[點点時时分月日號号])|(?<=[點点時时])[零〇一二兩三四五六七八九十]+|(?<=提前)[零〇一二兩三四五六七八九十]+|(?<=提前提醒)[零〇一二兩三四五六七八九十]+|(?<=提前通知)[零〇一二兩三四五六七八九十]+|[零〇一二兩三四五六七八九十]+(?=(?:個|个)?(?:分鐘|分钟|小時|小时|天|日)前)"
+        "(?<![週周期拜])[零〇一二兩三四五六七八九十]+(?=[點点時时分月日號号])|(?<=[點点時时])[零〇一二兩三四五六七八九十]+|(?<=提前)[零〇一二兩三四五六七八九十]+|(?<=提前提醒)[零〇一二兩三四五六七八九十]+|(?<=提前通知)[零〇一二兩三四五六七八九十]+|[零〇一二兩三四五六七八九十]+(?=(?:個|个)?(?:分鐘|分钟|小時|小时|天|日)前)|[零〇一二兩三四五六七八九十]+(?=(?:個|个)?(?:天|日|週|周|星期|禮拜|月|小時|小时|分鐘|分钟)(?:之)?(?:後|后))"
     )
 
     private fun cnDigit(c: Char): Int = when (c) {
@@ -112,31 +112,93 @@ object Parser {
     private fun dateOf(y: Int, m: Int, d: Int): LocalDate? =
         try { LocalDate.of(y, m, d) } catch (_: DateTimeException) { null }
 
-    /** 日期欄位用：今天、明天、後天、週五、10/28、10月28日、2026/10/28 */
-    fun parseDate(input: String, today: LocalDate): LocalDate? {
-        val s = norm(input).trim()
-        when {
-            s == "今天" || s == "今日" -> return today
-            s == "明天" || s == "明日" -> return today.plusDays(1)
-            s == "後天" -> return today.plusDays(2)
-            s == "大後天" -> return today.plusDays(3)
+    private class DateRes(val date: LocalDate?, val rest: String, val error: String? = null)
+
+    private const val WK = "(?:週|周|星期|禮拜)"
+
+    private fun clampDay(ym: java.time.YearMonth, d: Int): LocalDate = ym.atDay(minOf(d, ym.lengthOfMonth()))
+
+    /**
+     * 從文字裡找出「未來」的日期說法，回傳日期與剩下的文字。
+     * 支援：今天 明天 後天 大後天、週五、這週五 下週五 下下週五、三天後 兩週後 三個月後、
+     * 月底 下個月底 年底、下個月5號 這個月20號、10/28 10月28日 2026/10/28 明年3月5日、20號
+     */
+    private fun extractDate(input: String, today: LocalDate, tod: LocalTime, now: LocalDateTime): DateRes {
+        var s = input
+        fun grab(re: Regex): MatchResult? {
+            val m = re.find(s) ?: return null
+            s = s.removeRange(m.range)
+            return m
         }
-        Regex("^(?:週|周|星期|禮拜)([一二三四五六日天])$").find(s)?.let {
+        fun hit(d: LocalDate) = DateRes(d, s)
+        val thisMonth = java.time.YearMonth.from(today)
+
+        grab(Regex("(下下|下|這|这|本)(?:個|个)?" + WK + "([一二三四五六日天])"))?.let {
+            val off = when (it.groupValues[1]) { "下下" -> 2L; "下" -> 1L; else -> 0L }
+            val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
+            return hit(monday.plusDays(off * 7L + dowIndex(it.groupValues[2][0])))
+        }
+        grab(Regex("(\\d{1,3})\\s*[天日]\\s*(?:之)?(?:後|后)"))?.let {
+            return hit(today.plusDays(it.groupValues[1].toLong()))
+        }
+        grab(Regex("(\\d{1,2})\\s*(?:個|个)?\\s*" + WK + "\\s*(?:之)?(?:後|后)"))?.let {
+            return hit(today.plusDays(it.groupValues[1].toLong() * 7L))
+        }
+        grab(Regex("(\\d{1,2})\\s*(?:個|个)?\\s*月\\s*(?:之)?(?:後|后)"))?.let {
+            return hit(today.plusMonths(it.groupValues[1].toLong()))
+        }
+        grab(Regex("(下下|下|這|这|本)?(?:個|个)?月底"))?.let {
+            val off = when (it.groupValues[1]) { "下下" -> 2L; "下" -> 1L; else -> 0L }
+            return hit(thisMonth.plusMonths(off).atEndOfMonth())
+        }
+        grab(Regex("(?:今年)?年底"))?.let { return hit(LocalDate.of(today.year, 12, 31)) }
+        grab(Regex("(下下|下|這|这|本)(?:個|个)?月\\s*(\\d{1,2})\\s*[日號号]"))?.let {
+            val off = when (it.groupValues[1]) { "下下" -> 2L; "下" -> 1L; else -> 0L }
+            val day = it.groupValues[2].toInt()
+            if (day !in 1..31) return DateRes(null, s, "號數要在 1 到 31 之間")
+            return hit(clampDay(thisMonth.plusMonths(off), day))
+        }
+        grab(Regex("明年\\s*(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*[日號号]?"))?.let {
+            val d = dateOf(today.year + 1, it.groupValues[1].toInt(), it.groupValues[2].toInt())
+                ?: return DateRes(null, s, "日期不存在，請檢查月份和日")
+            return hit(d)
+        }
+        if (grab(Regex("大後天")) != null) return hit(today.plusDays(3))
+        if (grab(Regex("後天")) != null) return hit(today.plusDays(2))
+        if (grab(Regex("明天|明日")) != null) return hit(today.plusDays(1))
+        if (grab(Regex("今天|今日")) != null) return hit(today)
+        grab(Regex(WK + "([一二三四五六日天])"))?.let {
             val i = dowIndex(it.groupValues[1][0])
             var d = today
-            while (d.dayOfWeek.value - 1 != i) d = d.plusDays(1)
-            return d
+            while (d.dayOfWeek.value - 1 != i || !LocalDateTime.of(d, tod).isAfter(now)) d = d.plusDays(1)
+            return hit(d)
         }
-        Regex("^(\\d{4})/(\\d{1,2})/(\\d{1,2})$").find(s)?.let {
-            return dateOf(it.groupValues[1].toInt(), it.groupValues[2].toInt(), it.groupValues[3].toInt())
+        grab(Regex("(\\d{4})/(\\d{1,2})/(\\d{1,2})"))?.let {
+            val d = dateOf(it.groupValues[1].toInt(), it.groupValues[2].toInt(), it.groupValues[3].toInt())
+                ?: return DateRes(null, s, "日期不存在，請檢查月份和日")
+            return hit(d)
         }
-        val md = Regex("^(\\d{1,2})/(\\d{1,2})$").find(s)
-            ?: Regex("^(\\d{1,2})月(\\d{1,2})[日號号]?$").find(s)
+        val md = grab(Regex("(\\d{1,2})/(\\d{1,2})")) ?: grab(Regex("(\\d{1,2})月(\\d{1,2})[日號号]?"))
         if (md != null) {
-            val c = dateOf(today.year, md.groupValues[1].toInt(), md.groupValues[2].toInt()) ?: return null
-            return if (c.isBefore(today)) c.plusYears(1) else c
+            val c = dateOf(today.year, md.groupValues[1].toInt(), md.groupValues[2].toInt())
+                ?: return DateRes(null, s, "日期不存在，請檢查月份和日")
+            return hit(if (c.isBefore(today)) c.plusYears(1) else c)
         }
-        return null
+        grab(Regex("(\\d{1,2})\\s*[日號号]"))?.let {
+            val day = it.groupValues[1].toInt()
+            if (day !in 1..31) return DateRes(null, s, "號數要在 1 到 31 之間")
+            var d = clampDay(thisMonth, day)
+            if (!LocalDateTime.of(d, tod).isAfter(now)) d = clampDay(thisMonth.plusMonths(1), day)
+            return hit(d)
+        }
+        return DateRes(null, s)
+    }
+
+    /** 日期欄位用：能填上面支援的所有日期說法 */
+    fun parseDate(input: String, today: LocalDate): LocalDate? {
+        val s = norm(input).trim()
+        val r = extractDate(s, today, LocalTime.MIN, today.atStartOfDay().minusMinutes(1))
+        return if (r.error == null && r.rest.isBlank()) r.date else null
     }
 
     fun formatDate(d: LocalDate, today: LocalDate): String = when (d) {
@@ -178,16 +240,29 @@ object Parser {
             if (grab(Regex("重要")) != null) imp = true
         }
 
-        val found = findTime(s)
+        // 「兩小時後」「三十分鐘後」：直接算出響鈴時間與日期
+        val relM = Regex("(\\d{1,3})\\s*(?:個|个)?\\s*(分鐘|分钟|小時|小时)\\s*(?:之)?(?:後|后)").find(s)
+        var relTarget: LocalDateTime? = null
+        val found: TimeHit?
+        if (relM != null) {
+            val n = relM.groupValues[1].toLong()
+            val mins = if (relM.groupValues[2].startsWith("小")) n * 60L else n
+            val rt = now.plusMinutes(mins).withSecond(0).withNano(0)
+            relTarget = rt
+            s = s.removeRange(relM.range)
+            found = TimeHit(rt.hour, rt.minute, IntRange.EMPTY)
+        } else {
+            found = findTime(s)
+        }
         // 沒說時間：先設 09:00，儲存後會提示使用者
         val defaultedTime = found == null
         val t = found ?: TimeHit(9, 0, IntRange.EMPTY)
-        if (found != null) s = s.removeRange(t.range)
+        if (relM == null && found != null) s = s.removeRange(t.range)
         val today = now.toLocalDate()
         val tod = LocalTime.of(t.h, t.m)
         var mask = 0
         var monthDay = 0
-        var date: LocalDate? = null
+        var date: LocalDate? = relTarget?.toLocalDate()
 
         val mm = grab(Regex("每(?:個|个)?月\\s*(\\d{1,2})\\s*[日號号]?"))
         if (mm != null) {
@@ -210,33 +285,11 @@ object Parser {
         }
 
         if (mask == 0 && monthDay == 0) {
-            val w = grab(Regex("(?:週|周|星期|禮拜)([一二三四五六日天])"))
-            if (w != null) {
-                val i = dowIndex(w.groupValues[1][0])
-                var d = today
-                while (d.dayOfWeek.value - 1 != i || !LocalDateTime.of(d, tod).isAfter(now)) d = d.plusDays(1)
-                date = d
-            } else if (grab(Regex("大後天")) != null) {
-                date = today.plusDays(3)
-            } else if (grab(Regex("後天")) != null) {
-                date = today.plusDays(2)
-            } else if (grab(Regex("明天|明日")) != null) {
-                date = today.plusDays(1)
-            } else if (grab(Regex("今天|今日")) != null) {
-                date = today
-            } else {
-                val ymd = grab(Regex("(\\d{4})/(\\d{1,2})/(\\d{1,2})"))
-                if (ymd != null) {
-                    date = dateOf(ymd.groupValues[1].toInt(), ymd.groupValues[2].toInt(), ymd.groupValues[3].toInt())
-                        ?: return Quick(null, "日期不存在，請檢查月份和日")
-                } else {
-                    val md = grab(Regex("(\\d{1,2})/(\\d{1,2})")) ?: grab(Regex("(\\d{1,2})月(\\d{1,2})[日號号]?"))
-                    if (md != null) {
-                        val c = dateOf(today.year, md.groupValues[1].toInt(), md.groupValues[2].toInt())
-                            ?: return Quick(null, "日期不存在，請檢查月份和日")
-                        date = if (c.isBefore(today)) c.plusYears(1) else c
-                    }
-                }
+            if (relTarget == null) {
+                val r = extractDate(s, today, tod, now)
+                if (r.error != null) return Quick(null, r.error)
+                s = r.rest
+                date = r.date
             }
             if (date != null && !LocalDateTime.of(date, tod).isAfter(now)) {
                 return Quick(null, "這個時間已經過了，換個時間或日期")
