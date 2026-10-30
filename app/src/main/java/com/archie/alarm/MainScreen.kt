@@ -29,6 +29,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -301,6 +306,17 @@ fun MainScreen(permTick: Int, version: String) {
             }) { Text("刪除", fontSize = 13.sp, color = cs.error) }
         }
 
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LegendDot(cardColors(false).accent, "固定（重複）")
+            LegendDot(cardColors(true).accent, "僅一次")
+        }
+
         if (needNotif) {
             Banner("需要「通知」權限，鬧鐘才能響。", "前往設定") {
                 ctx.startActivity(
@@ -319,7 +335,7 @@ fun MainScreen(permTick: Int, version: String) {
 
         LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp)) {
             items(sorted, key = { it.id }) { item ->
-                Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                Box(Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
                     if (editingId == item.id) {
                         EditRow(
                             item = item,
@@ -396,6 +412,37 @@ private fun Banner(text: String, action: String, onClick: () -> Unit) {
 
 // ───────────────────────── 一般列（只顯示文字） ─────────────────────────
 
+private class CardColors(val bg: Color, val accent: Color, val text: Color)
+
+/** 固定（重複）＝藍；僅一次＝橘。深色模式用較暗的底色 */
+@Composable
+private fun cardColors(once: Boolean): CardColors {
+    val dark = isSystemInDarkTheme()
+    return if (once) {
+        if (dark) CardColors(Color(0xFF4A3318), Color(0xFFFFA040), Color(0xFFFFB866))
+        else CardColors(Color(0xFFFFE8CF), Color(0xFFE07B00), Color(0xFF9A5200))
+    } else {
+        if (dark) CardColors(Color(0xFF1F2B4A), Color(0xFF6C8EF5), Color(0xFF9FB4F5))
+        else CardColors(Color(0xFFE4EBFB), Color(0xFF2B5FD9), Color(0xFF244BAD))
+    }
+}
+
+@Composable
+private fun LegendDot(color: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(14.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(color)
+        )
+        Text(
+            text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 6.dp), maxLines = 1, softWrap = false,
+        )
+    }
+}
+
 @Composable
 private fun ItemRow(
     item: Item,
@@ -405,52 +452,70 @@ private fun ItemRow(
     onEdit: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    val a = if (item.enabled) 1f else 0.45f
+    val once = item.mask == 0 && item.monthDay == 0
+    val c = cardColors(once)
+    val a = if (item.enabled) 1f else 0.5f
     val today = LocalDate.now()
-    val sub = listOfNotNull(
-        if (item.monthDay > 0) "每月 ${item.monthDay} 日"
-        else if (item.mask == 0 && item.dateEpochDay != null) Fmt.dayLabel(LocalDate.ofEpochDay(item.dateEpochDay), today)
-        else if (item.mask == 0) "僅一次" else null,
-        item.label.ifBlank { "鬧鐘" },
+    val line2 = listOfNotNull(
+        if (once) {
+            item.dateEpochDay?.let { Fmt.dayLabel(LocalDate.ofEpochDay(it), today) }
+        } else null,
+        if (once) "僅一次" else item.repeatText(),
+        if (item.advanceMin > 0) "提前 ${Fmt.advShort(item.advanceMin)}" + if (item.advanceImportant) "・重要" else "" else null,
+        item.note.ifBlank { null },
     ).joinToString("・")
 
     Row(
         Modifier
             .fillMaxWidth()
+            .height(IntrinsicSize.Min)
             .clip(CardShape)
-            .background(cs.surface)
-            .clickable(onClick = onEdit)
-            .padding(start = 4.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .background(c.bg.copy(alpha = if (item.enabled) 1f else 0.6f)),
     ) {
-        Checkbox(checked = checked, onCheckedChange = onCheck)
-        Column(Modifier.weight(1f)) {
-            Text(
-                item.timeText(), fontSize = 28.sp, fontWeight = FontWeight.Medium,
-                color = cs.onSurface.copy(alpha = a),
-            )
-            Text(sub, fontSize = 14.sp, color = cs.onSurfaceVariant.copy(alpha = a), maxLines = 1)
-            if (item.note.isNotBlank()) {
-                Text(
-                    item.note, fontSize = 12.sp, color = cs.onSurfaceVariant.copy(alpha = 0.75f * a),
-                    maxLines = 2, modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            if (item.advanceMin > 0) {
-                Tag(
-                    "提前 ${Fmt.advShort(item.advanceMin)}" + if (item.advanceImportant) "・重要" else "",
-                    item.advanceImportant, a, Modifier.padding(top = 6.dp),
-                )
-            }
-            if (item.mask != 0) {
-                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Fmt.DOW.forEachIndexed { i, c ->
-                        Dot(c.toString(), item.mask and (1 shl i) != 0, a, Modifier.size(22.dp), 11, null)
-                    }
+        Box(
+            Modifier
+                .width(8.dp)
+                .fillMaxHeight()
+                .background(c.accent.copy(alpha = a))
+        )
+        Row(
+            Modifier
+                .weight(1f)
+                .clickable(onClick = onEdit)
+                .padding(start = 2.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = checked, onCheckedChange = onCheck)
+            Column(Modifier.weight(1f)) {
+                Row {
+                    Text(
+                        item.timeText(), fontSize = 30.sp, fontWeight = FontWeight.Medium,
+                        color = cs.onSurface.copy(alpha = a), maxLines = 1, softWrap = false,
+                        modifier = Modifier.alignByBaseline(),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        item.label.ifBlank { "鬧鐘" }, fontSize = 21.sp,
+                        color = cs.onSurface.copy(alpha = a), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .alignByBaseline(),
+                    )
                 }
+                Text(
+                    line2, fontSize = 16.sp, color = c.text.copy(alpha = a),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
+            Switch(
+                checked = item.enabled, onCheckedChange = onToggle,
+                colors = SwitchDefaults.colors(
+                    checkedTrackColor = c.accent,
+                    checkedThumbColor = Color.White,
+                    checkedBorderColor = c.accent,
+                ),
+            )
         }
-        Switch(checked = item.enabled, onCheckedChange = onToggle)
     }
 }
 
