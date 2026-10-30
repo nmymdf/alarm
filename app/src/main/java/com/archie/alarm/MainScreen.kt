@@ -344,10 +344,11 @@ fun MainScreen(permTick: Int, version: String) {
             }
             item {
                 Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    QuickRow(onAdd = { i ->
+                    QuickRow(onAdd = { i, defaulted ->
                         val u = i.copy(id = Store.nextId())
                         Store.upsert(u)
                         afterSave(u)
+                        if (defaulted) msg = "已儲存。沒聽到時間，先設 09:00，點這筆可以修改。"
                     })
                 }
             }
@@ -407,7 +408,8 @@ private fun ItemRow(
     val a = if (item.enabled) 1f else 0.45f
     val today = LocalDate.now()
     val sub = listOfNotNull(
-        if (item.mask == 0 && item.dateEpochDay != null) Fmt.dayLabel(LocalDate.ofEpochDay(item.dateEpochDay), today)
+        if (item.monthDay > 0) "每月 ${item.monthDay} 日"
+        else if (item.mask == 0 && item.dateEpochDay != null) Fmt.dayLabel(LocalDate.ofEpochDay(item.dateEpochDay), today)
         else if (item.mask == 0) "僅一次" else null,
         item.label.ifBlank { "鬧鐘" },
     ).joinToString("・")
@@ -563,6 +565,11 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
     val d0 = item.dateEpochDay?.let { Parser.formatDate(LocalDate.ofEpochDay(it), today) } ?: ""
     var date by remember(item.id) { mutableStateOf(TextFieldValue(d0, TextRange(d0.length))) }
     var mask by remember(item.id) { mutableIntStateOf(item.mask) }
+    var monthly by remember(item.id) { mutableStateOf(item.monthDay > 0) }
+    val md0 = if (item.monthDay > 0) item.monthDay.toString() else ""
+    var monthText by remember(item.id) { mutableStateOf(TextFieldValue(md0, TextRange(md0.length))) }
+    val monthFr = remember { FocusRequester() }
+    var monthError by remember(item.id) { mutableStateOf<String?>(null) }
     var snooze by remember(item.id) { mutableIntStateOf(item.snoozeMin) }
     var advMin by remember(item.id) { mutableIntStateOf(item.advanceMin) }
     var advImp by remember(item.id) { mutableStateOf(item.advanceImportant) }
@@ -594,8 +601,18 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
             timeFr.requestFocus()
             return
         }
+        var monthDay = 0
+        if (monthly) {
+            val v = monthText.text.trim().toIntOrNull()
+            if (v == null || v !in 1..31) {
+                monthError = "請填 1 到 31 的號數"
+                monthFr.requestFocus()
+                return
+            }
+            monthDay = v
+        }
         var epoch: Long? = null
-        if (mask == 0 && date.text.isNotBlank()) {
+        if (!monthly && mask == 0 && date.text.isNotBlank()) {
             val d = Parser.parseDate(date.text, today)
             if (d == null) {
                 dateError = "日期看不懂，例如 明天、10/28"
@@ -606,13 +623,14 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
         }
         val u = item.copy(
             hour = tm.first, minute = tm.second, label = label.text.trim(), note = note.text.trim(),
-            mask = mask, dateEpochDay = if (mask == 0) epoch else null,
+            mask = if (monthly) 0 else mask, dateEpochDay = if (!monthly && mask == 0) epoch else null,
+            monthDay = monthDay,
             snoozeMin = snooze, enabled = true,
             advanceMin = advMin, advanceImportant = advMin > 0 && advImp,
         )
         if (u.nextTrigger(LocalDateTime.now()) == null) {
             dateError = "這個時間已經過了"
-            if (mask == 0) dateFr.requestFocus()
+            if (!monthly && mask == 0) dateFr.requestFocus()
             return
         }
         focus.clearFocus()
@@ -635,7 +653,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
                 placeholder = "07:30", keyboardType = KeyboardType.Number, imeAction = ImeAction.Next,
                 isError = timeError != null,
                 onFocusChange = { onCellFocus(it) },
-                onAction = { if (mask == 0) dateFr.requestFocus() else labelFr.requestFocus() },
+                onAction = { if (monthly) monthFr.requestFocus() else if (mask == 0) dateFr.requestFocus() else labelFr.requestFocus() },
             )
             Cell(
                 value = label, onValueChange = { label = it },
@@ -656,19 +674,35 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip("每天", mask == 127, Modifier.weight(1f)) { mask = 127; dateError = null }
-            Chip("工作日", mask == 31, Modifier.weight(1f)) { mask = 31; dateError = null }
-            Chip("週末", mask == 96, Modifier.weight(1f)) { mask = 96; dateError = null }
-            Chip("僅一次", mask == 0, Modifier.weight(1f)) { mask = 0 }
+            Chip("每天", !monthly && mask == 127, Modifier.weight(1f)) { monthly = false; mask = 127; dateError = null }
+            Chip("工作日", !monthly && mask == 31, Modifier.weight(1f)) { monthly = false; mask = 31; dateError = null }
+            Chip("週末", !monthly && mask == 96, Modifier.weight(1f)) { monthly = false; mask = 96; dateError = null }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Chip("每月", monthly, Modifier.weight(1f)) { monthly = true; mask = 0; dateError = null }
+            Chip("僅一次", !monthly && mask == 0, Modifier.weight(1f)) { monthly = false; mask = 0 }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Fmt.DOW.forEachIndexed { i, c ->
-                val on = mask and (1 shl i) != 0
-                Dot(c.toString(), on, 1f, Modifier.size(38.dp), 14) { mask = mask xor (1 shl i) }
+                val on = !monthly && mask and (1 shl i) != 0
+                Dot(c.toString(), on, 1f, Modifier.size(38.dp), 14) { monthly = false; mask = mask xor (1 shl i) }
             }
         }
 
-        if (mask == 0) {
+        if (monthly) {
+            FormRow("每月幾號") {
+                Cell(
+                    value = monthText, onValueChange = { monthText = it; monthError = null },
+                    modifier = Modifier.fillMaxWidth(), fr = monthFr,
+                    placeholder = "例如 20", keyboardType = KeyboardType.Number, imeAction = ImeAction.Next,
+                    isError = monthError != null,
+                    onFocusChange = { onCellFocus(it) },
+                    onAction = { labelFr.requestFocus() },
+                )
+            }
+            Text("31 號遇到小月，會在月底最後一天響", fontSize = 13.sp, color = cs.onSurfaceVariant)
+            monthError?.let { Text(it, color = cs.error, fontSize = 12.sp) }
+        } else if (mask == 0) {
             FormRow("日期") {
                 Cell(
                     value = date, onValueChange = { date = it; dateError = null },
@@ -777,7 +811,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
 // ───────────────────────── 最下面空白輸入列 ─────────────────────────
 
 @Composable
-private fun QuickRow(onAdd: (Item) -> Unit) {
+private fun QuickRow(onAdd: (Item, Boolean) -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ctx = LocalContext.current
     var tv by remember { mutableStateOf(TextFieldValue("")) }
@@ -793,7 +827,7 @@ private fun QuickRow(onAdd: (Item) -> Unit) {
             tv = TextFieldValue(text, TextRange(text.length))
             err = r.error
         } else {
-            onAdd(r.item)
+            onAdd(r.item, r.defaultedTime)
             tv = TextFieldValue("")
             err = null
         }

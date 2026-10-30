@@ -22,10 +22,13 @@ data class Item(
     val advanceMin: Int = 0,
     /** true＝提前那次也像鬧鐘一樣響 */
     val advanceImportant: Boolean = false,
+    /** 每月幾號；0 代表不是每月重複 */
+    val monthDay: Int = 0,
 ) {
     fun timeText(): String = "%02d:%02d".format(hour, minute)
 
     fun repeatText(): String = when {
+        monthDay > 0 -> "每月 $monthDay 日"
         mask == 127 -> "每天"
         mask == 31 -> "工作日"
         mask == 96 -> "週末"
@@ -36,6 +39,15 @@ data class Item(
 
     fun nextTrigger(now: LocalDateTime): LocalDateTime? {
         val t = LocalTime.of(hour, minute)
+        if (monthDay > 0) {
+            val start = java.time.YearMonth.from(now.toLocalDate())
+            for (k in 0..13) {
+                val ym = start.plusMonths(k.toLong())
+                val dt = LocalDateTime.of(ym.atDay(minOf(monthDay, ym.lengthOfMonth())), t)
+                if (dt.isAfter(now)) return dt
+            }
+            return null
+        }
         if (mask == 0) {
             return if (dateEpochDay != null) {
                 val dt = LocalDateTime.of(LocalDate.ofEpochDay(dateEpochDay), t)
@@ -79,6 +91,7 @@ data class Item(
         put("note", note)
         put("adv", advanceMin)
         put("advImp", advanceImportant)
+        put("monthDay", monthDay)
     }
 
     companion object {
@@ -94,6 +107,7 @@ data class Item(
             note = o.optString("note", ""),
             advanceMin = o.optInt("adv", 0),
             advanceImportant = o.optBoolean("advImp", false),
+            monthDay = o.optInt("monthDay", 0),
         )
     }
 }

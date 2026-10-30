@@ -46,7 +46,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val item = Store.get(id) ?: return
         Advance.clear(ctx, id)
         if (!snooze) {
-            if (item.mask == 0) {
+            if (item.mask == 0 && item.monthDay == 0) {
                 Store.upsert(item.copy(enabled = false))
             } else {
                 Scheduler.schedule(ctx, item)

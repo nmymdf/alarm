@@ -5,7 +5,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 
-class Quick(val item: Item?, val error: String? = null)
+class Quick(val item: Item?, val error: String? = null, val defaultedTime: Boolean = false)
 
 object Parser {
     class TimeHit(val h: Int, val m: Int, val range: IntRange)
@@ -178,21 +178,29 @@ object Parser {
             if (grab(Regex("重要")) != null) imp = true
         }
 
-        val t = findTime(s) ?: return Quick(null, "找不到時間，試試「明天 15:00 開會」")
-        s = s.removeRange(t.range)
+        val found = findTime(s)
+        // 沒說時間：先設 09:00，儲存後會提示使用者
+        val defaultedTime = found == null
+        val t = found ?: TimeHit(9, 0, IntRange.EMPTY)
+        if (found != null) s = s.removeRange(t.range)
         val today = now.toLocalDate()
         val tod = LocalTime.of(t.h, t.m)
         var mask = 0
+        var monthDay = 0
         var date: LocalDate? = null
 
-        if (grab(Regex("每(?:天|日)")) != null) {
+        val mm = grab(Regex("每(?:個|个)?月\\s*(\\d{1,2})\\s*[日號号]?"))
+        if (mm != null) {
+            monthDay = mm.groupValues[1].toInt()
+            if (monthDay !in 1..31) return Quick(null, "每月幾號要在 1 到 31 之間")
+        } else if (grab(Regex("每(?:天|日)")) != null) {
             mask = 127
         } else if (grab(Regex("工作日|平日")) != null) {
             mask = 31
         } else if (grab(Regex("週末|周末")) != null) {
             mask = 96
         } else {
-            val m = grab(Regex("每(?:週|周|星期|禮拜)([一二三四五六日天、,\\s]+)"))
+            val m = grab(Regex("每(?:個|个)?(?:週|周|星期|禮拜)([一二三四五六日天、,\\s]+)"))
             if (m != null) {
                 for (c in m.groupValues[1]) {
                     val i = dowIndex(c)
@@ -201,7 +209,7 @@ object Parser {
             }
         }
 
-        if (mask == 0) {
+        if (mask == 0 && monthDay == 0) {
             val w = grab(Regex("(?:週|周|星期|禮拜)([一二三四五六日天])"))
             if (w != null) {
                 val i = dowIndex(w.groupValues[1][0])
@@ -241,8 +249,9 @@ object Parser {
             Item(
                 id = 0, hour = t.h, minute = t.m, label = label, mask = mask,
                 dateEpochDay = date?.toEpochDay(), enabled = true, snoozeMin = 10,
-                note = note, advanceMin = adv, advanceImportant = imp,
-            )
+                note = note, advanceMin = adv, advanceImportant = imp, monthDay = monthDay,
+            ),
+            defaultedTime = defaultedTime,
         )
     }
 }
