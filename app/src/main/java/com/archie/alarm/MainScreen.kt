@@ -222,17 +222,25 @@ fun MainScreen(permTick: Int, version: String) {
 
     BackHandler(enabled = editingId != null) { editingId = null }
 
-    Column(
+    LaunchedEffect(msg) {
+        if (msg != null) {
+            delay(3000)
+            msg = null
+        }
+    }
+
+    Box(
         Modifier
             .fillMaxSize()
             .background(cs.background)
             .systemBarsPadding()
             .imePadding()
     ) {
+    Column(Modifier.fillMaxSize()) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 10.dp),
+                .padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -249,28 +257,42 @@ fun MainScreen(permTick: Int, version: String) {
             )
         }
 
-        Column(
+        Row(
             Modifier
                 .padding(horizontal = 12.dp)
                 .fillMaxWidth()
                 .clip(CardShape)
                 .background(cs.primaryContainer)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             if (next != null) {
                 val (i, t, n) = next
-                val a = i.nextAdvance(n)
-                Text(
-                    "下一個響鈴・${Fmt.dayLabel(t.toLocalDate(), n.toLocalDate())}・${Fmt.until(n, t)}" +
-                        (a?.let { "・提前提醒 %02d:%02d".format(it.hour, it.minute) } ?: ""),
-                    fontSize = 12.sp, color = cs.onPrimaryContainer.copy(alpha = 0.85f), maxLines = 2,
-                )
+                val adv = i.nextAdvance(n)
                 Text(
                     "${i.timeText()} ${i.label}".trim(),
-                    fontSize = 22.sp, fontWeight = FontWeight.Medium, color = cs.onPrimaryContainer
+                    fontSize = 24.sp, fontWeight = FontWeight.Medium, color = cs.onPrimaryContainer,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
+                Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 10.dp)) {
+                    Text(
+                        Fmt.dayLabel(t.toLocalDate(), n.toLocalDate()), fontSize = 15.sp,
+                        color = cs.onPrimaryContainer.copy(alpha = 0.85f), maxLines = 1, softWrap = false,
+                    )
+                    Text(
+                        Fmt.until(n, t), fontSize = 15.sp,
+                        color = cs.onPrimaryContainer.copy(alpha = 0.85f), maxLines = 1, softWrap = false,
+                    )
+                    adv?.let {
+                        Text(
+                            "提前 %02d:%02d".format(it.hour, it.minute), fontSize = 13.sp,
+                            color = cs.onPrimaryContainer.copy(alpha = 0.85f), maxLines = 1, softWrap = false,
+                        )
+                    }
+                }
             } else {
-                Text("沒有啟用中的鬧鐘", fontSize = 16.sp, color = cs.onPrimaryContainer)
+                Text("沒有啟用中的鬧鐘", fontSize = 18.sp, color = cs.onPrimaryContainer)
             }
         }
 
@@ -281,40 +303,30 @@ fun MainScreen(permTick: Int, version: String) {
             }
         }
 
-        msg?.let {
-            Text(it, fontSize = 13.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 20.dp, top = 6.dp))
-        }
-
+        val allSelected = items.isNotEmpty() && selected.size == items.size
         Row(
             Modifier
+                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp)
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .height(IntrinsicSize.Min)
+                .clip(CardShape)
+                .background(cs.surface),
         ) {
-            val allSelected = items.isNotEmpty() && selected.size == items.size
-            TextButton(onClick = {
+            ToolCell(if (allSelected) "全不選" else "全選", cs.primary, Modifier.weight(1f)) {
                 selected = if (allSelected) emptySet() else items.map { it.id }.toSet()
-            }) { Text(if (allSelected) "取消全選" else "全選", fontSize = 13.sp) }
-            TextButton(onClick = {
+            }
+            ToolDivider()
+            ToolCell("啟用", cs.primary, Modifier.weight(1f)) {
                 if (selected.isEmpty()) msg = "請先勾選要處理的項目" else setEnabled(selected, true)
-            }) { Text("啟用", fontSize = 13.sp) }
-            TextButton(onClick = {
+            }
+            ToolDivider()
+            ToolCell("停用", cs.primary, Modifier.weight(1f)) {
                 if (selected.isEmpty()) msg = "請先勾選要處理的項目" else setEnabled(selected, false)
-            }) { Text("停用", fontSize = 13.sp) }
-            TextButton(onClick = {
+            }
+            ToolDivider()
+            ToolCell("刪除", cs.error, Modifier.weight(1f)) {
                 if (selected.isEmpty()) msg = "請先勾選要刪除的項目" else confirmDelete = true
-            }) { Text("刪除", fontSize = 13.sp, color = cs.error) }
-        }
-
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            LegendDot(cardColors(false).accent, "固定（重複）")
-            LegendDot(cardColors(true).accent, "僅一次")
+            }
         }
 
         if (needNotif) {
@@ -358,18 +370,29 @@ fun MainScreen(permTick: Int, version: String) {
                     }
                 }
             }
-            item {
-                Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    QuickRow(onAdd = { i, defaulted ->
-                        val u = i.copy(id = Store.nextId())
-                        Store.upsert(u)
-                        afterSave(u)
-                        if (defaulted) msg = "已儲存。沒聽到時間，先設 09:00，點這筆可以修改。"
-                    })
-                }
-            }
-            item { Box(Modifier.height(16.dp)) }
         }
+
+        Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+            QuickRow(onAdd = { i, defaulted ->
+                val u = i.copy(id = Store.nextId())
+                Store.upsert(u)
+                afterSave(u)
+                if (defaulted) msg = "已儲存。沒聽到時間，先設 09:00，點這筆可以修改。"
+            })
+        }
+    }
+
+    msg?.let { m ->
+        Text(
+            m, fontSize = 17.sp, color = Color.White,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 20.dp, end = 20.dp, bottom = 92.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xE6323640))
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        )
+    }
     }
 
     if (confirmDelete) {
@@ -425,6 +448,29 @@ private fun cardColors(once: Boolean): CardColors {
         if (dark) CardColors(Color(0xFF1F2B4A), Color(0xFF6C8EF5), Color(0xFF9FB4F5))
         else CardColors(Color(0xFFE4EBFB), Color(0xFF2B5FD9), Color(0xFF244BAD))
     }
+}
+
+@Composable
+private fun ToolCell(text: String, color: Color, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .height(48.dp)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, fontSize = 20.sp, color = color, maxLines = 1, softWrap = false)
+    }
+}
+
+@Composable
+private fun ToolDivider() {
+    Box(
+        Modifier
+            .width(1.dp)
+            .fillMaxHeight()
+            .padding(vertical = 10.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant)
+    )
 }
 
 @Composable

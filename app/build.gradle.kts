@@ -11,8 +11,8 @@ android {
         applicationId = "com.archie.alarm"
         minSdk = 27
         targetSdk = 34
-        versionCode = 11
-        versionName = "0.11"
+        versionCode = 12
+        versionName = "0.12"
     }
 
     buildTypes {
