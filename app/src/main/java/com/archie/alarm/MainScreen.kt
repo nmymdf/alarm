@@ -883,7 +883,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
         ) {
             Box {
                 Text(
-                    if (snoozeActive) "稍後提醒 $snooze 分 ▾" else "稍後提醒 $snooze 分",
+                    "稍後提醒 ${if (snooze >= 60) "1 小時" else "$snooze 分"}" + if (snoozeActive) " ▾" else "",
                     fontSize = 14.sp, color = cs.onSurfaceVariant, maxLines = 1, softWrap = false,
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
@@ -895,9 +895,9 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
                         .padding(vertical = 10.dp, horizontal = 2.dp),
                 )
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    listOf(5, 10, 15, 20, 30).forEach { m ->
+                    listOf(5, 10, 15, 20, 30, 60).forEach { m ->
                         DropdownMenuItem(
-                            text = { Text("$m 分鐘") },
+                            text = { Text(if (m >= 60) "1 小時" else "$m 分鐘") },
                             onClick = { snooze = m; menuOpen = false },
                         )
                     }

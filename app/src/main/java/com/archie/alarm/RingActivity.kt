@@ -15,6 +15,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -86,9 +87,9 @@ class RingActivity : ComponentActivity() {
                     allowSnooze = !adv,
                     snoozeMin = item.snoozeMin,
                     version = version,
-                    onSnooze = {
-                        Scheduler.snooze(this, id, item.snoozeMin)
-                        Toast.makeText(this, "${item.snoozeMin} 分鐘後再響", Toast.LENGTH_SHORT).show()
+                    onSnooze = { min ->
+                        Scheduler.snooze(this, id, min)
+                        Toast.makeText(this, if (min >= 60) "${min / 60} 小時後再響" else "$min 分鐘後再響", Toast.LENGTH_SHORT).show()
                         stopService(Intent(this, RingService::class.java))
                         finish()
                     },
@@ -119,7 +120,7 @@ fun RingScreen(
     allowSnooze: Boolean,
     snoozeMin: Int,
     version: String,
-    onSnooze: () -> Unit,
+    onSnooze: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     Column(
@@ -153,16 +154,21 @@ fun RingScreen(
         }
         Column(verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             if (allowSnooze) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(64.dp)
-                        .clip(RoundedCornerShape(32.dp))
-                        .background(Color(0xFF2B3139))
-                        .clickable(onClick = onSnooze),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("稍後提醒 $snoozeMin 分鐘", color = Color.White, fontSize = 18.sp)
+                Text("稍後再響", color = Color(0xFFBBBBBB), fontSize = 18.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    listOf(10 to "10 分鐘", 30 to "30 分鐘", 60 to "1 小時").forEach { (m, t) ->
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .height(64.dp)
+                                .clip(RoundedCornerShape(32.dp))
+                                .background(Color(0xFF2B3139))
+                                .clickable { onSnooze(m) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(t, color = Color.White, fontSize = 20.sp, maxLines = 1, softWrap = false)
+                        }
+                    }
                 }
             }
             HoldButton("按住 1 秒關閉", onDone = onDismiss)
