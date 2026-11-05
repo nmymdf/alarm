@@ -8,11 +8,20 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.archie.alarm"
+        applicationId = "com.archie.alarm2"
         minSdk = 27
         targetSdk = 34
-        versionCode = 13
-        versionName = "0.13"
+        versionCode = 14
+        versionName = "0.14"
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("archie.keystore")
+            storePassword = "archie123"
+            keyAlias = "archie"
+            keyPassword = "archie123"
+        }
     }
 
     buildTypes {
