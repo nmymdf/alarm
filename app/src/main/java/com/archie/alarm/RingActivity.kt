@@ -89,12 +89,13 @@ class RingActivity : ComponentActivity() {
                     version = version,
                     onSnooze = { min ->
                         Scheduler.snooze(this, id, min)
+                        RingService.stopAll(this, id)
                         Toast.makeText(this, if (min >= 60) "${min / 60} 小時後再響" else "$min 分鐘後再響", Toast.LENGTH_SHORT).show()
                         stopService(Intent(this, RingService::class.java))
                         finish()
                     },
                     onDismiss = {
-                        stopService(Intent(this, RingService::class.java))
+                        RingService.stopAll(this, id)
                         finish()
                     },
                 )

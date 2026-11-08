@@ -37,6 +37,36 @@ class RingService : Service() {
         @Volatile
         var running = false
 
+        @Volatile
+        private var instance: RingService? = null
+
+        /** 關閉鬧鈴：直接停聲音與震動，再停服務、清掉所有相關通知 */
+        fun stopAll(ctx: Context, id: Long) {
+            running = false
+            try {
+                instance?.let {
+                    it.handler.removeCallbacksAndMessages(null)
+                    it.stopSound()
+                }
+            } catch (_: Exception) {
+            }
+            try {
+                ctx.stopService(Intent(ctx, RingService::class.java))
+            } catch (_: Exception) {
+            }
+            try {
+                ctx.startService(Intent(ctx, RingService::class.java).setAction(ACTION_STOP))
+            } catch (_: Exception) {
+            }
+            try {
+                val nm = ctx.getSystemService(NotificationManager::class.java)
+                nm.cancel(NOTIF_ID)
+                nm.cancel(MIRROR_ID)
+                nm.cancel(2000 + id.toInt())
+            } catch (_: Exception) {
+            }
+        }
+
         fun lookup(id: Long): Item? =
             if (id == TEST_ID) {
                 val n = java.time.LocalTime.now()
@@ -69,6 +99,7 @@ class RingService : Service() {
             }
         }
 
+        instance = this
         advMode = intent?.getBooleanExtra("adv", false) == true
         curId = id
         val item = lookup(id)
@@ -271,6 +302,7 @@ class RingService : Service() {
     }
 
     override fun onDestroy() {
+        if (instance === this) instance = null
         handler.removeCallbacksAndMessages(null)
         stopSound()
         running = false
