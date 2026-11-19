@@ -40,8 +40,20 @@ object Quiet {
     fun prefs(c: Context): SharedPreferences =
         c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    /**
+     * 現在是不是安靜中。超過 4 小時一律當作已結束並自動還原——
+     * 就算自動恢復的排程被系統延誤，鬧鐘也絕不會被擋超過 4 小時。
+     */
     fun isOn(c: Context): Boolean = try {
-        prefs(c).getBoolean("on", false)
+        val p = prefs(c)
+        val on = p.getBoolean("on", false)
+        val started = p.getLong("startedAt", 0L)
+        if (on && started > 0 && System.currentTimeMillis() - started >= AUTO_OFF_MS) {
+            turnOff(c)
+            false
+        } else {
+            on
+        }
     } catch (_: Exception) {
         false
     }
