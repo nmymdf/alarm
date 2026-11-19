@@ -11,6 +11,7 @@ import android.media.AudioAttributes
 import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.archie.alarm.quiet.Quiet
 
 class AlarmApp : Application() {
     override fun onCreate() {
@@ -52,6 +53,11 @@ class AlarmReceiver : BroadcastReceiver() {
                 Scheduler.schedule(ctx, item)
             }
         }
+        // 一鍵安靜開著：不響、不震、不亮螢幕，只留一則沒有聲音的通知（下一次照常排好了）
+        if (Quiet.isOn(ctx)) {
+            Quiet.recordSkippedAlarm(ctx, id, item.timeText(), item.label)
+            return
+        }
         try {
             ContextCompat.startForegroundService(
                 ctx, Intent(ctx, RingService::class.java).putExtra("id", id)
@@ -74,6 +80,10 @@ class BootReceiver : BroadcastReceiver() {
 /** 主要響鈴失敗時的備援：直接用系統通知（鬧鐘音效＋震動）提醒 */
 object Fallback {
     fun post(ctx: Context, item: Item, why: String) {
+        if (Quiet.isOn(ctx)) {
+            Quiet.recordSkippedAlarm(ctx, item.id, item.timeText(), item.label)
+            return
+        }
         try {
             val nm = ctx.getSystemService(NotificationManager::class.java)
             val ch = "ring_fallback"

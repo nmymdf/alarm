@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">鬧鐘提醒</string>
+    <string name="quiet_app_name">一鍵安靜</string>
+    <string name="quiet_widget_desc">點一下全部安靜，再點一下恢復</string>
 </resources>

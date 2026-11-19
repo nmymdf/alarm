@@ -20,6 +20,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
+import com.archie.alarm.quiet.Quiet
 
 class RingService : Service() {
 
@@ -103,6 +104,16 @@ class RingService : Service() {
         advMode = intent?.getBooleanExtra("adv", false) == true
         curId = id
         val item = lookup(id)
+        // 一鍵安靜開著（測試響鈴除外）：用沒有聲音、不開畫面的通知結束服務
+        if (id != TEST_ID && Quiet.isOn(this)) {
+            try {
+                startForegroundCompat(Quiet.silentNotification(this))
+            } catch (_: Exception) {
+            }
+            if (item != null && !advMode) Quiet.recordSkippedAlarm(this, id, item.timeText(), item.label)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         try {
             startForegroundCompat(buildNotification(id, item, advMode))
         } catch (e: Exception) {

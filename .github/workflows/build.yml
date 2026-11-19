@@ -51,3 +51,28 @@ jobs:
           git commit -qm "APK v${VER}"
           git push -q origin apk
           echo "Download: https://github.com/${REPO}/raw/apk/alarm-v${VER}.apk"
+
+      - name: Screenshots
+        id: shots
+        continue-on-error: true
+        run: gradle testDebugUnitTest --no-daemon --tests "com.archie.alarm.quiet.ScreenshotTest"
+
+      - name: Publish screenshots to shots branch
+        if: always()
+        continue-on-error: true
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          rm -rf /tmp/shots && mkdir -p /tmp/shots/reports
+          cp app/build/shots/*.png /tmp/shots/ 2>/dev/null || true
+          cp app/build/test-results/testDebugUnitTest/*.xml /tmp/shots/reports/ 2>/dev/null || true
+          cd /tmp/shots
+          git init -q
+          git checkout -q -b shots
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          echo "${{ steps.shots.outcome }}" > outcome.txt
+          git add .
+          git commit -qm "screenshots"
+          git push -q -f "https://x-access-token:${TOKEN}@github.com/${REPO}.git" shots

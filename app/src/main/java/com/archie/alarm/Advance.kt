@@ -9,6 +9,7 @@ import android.media.AudioAttributes
 import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.archie.alarm.quiet.Quiet
 
 /** 提前提醒：一般＝通知留著＋沒確認就再提醒；重要＝像鬧鐘一樣響 */
 object Advance {
@@ -21,7 +22,8 @@ object Advance {
 
     fun fire(ctx: Context, item: Item, at: Long) {
         val eventMillis = if (at > 0) at else System.currentTimeMillis() + item.advanceMin * 60_000L
-        if (item.advanceImportant) {
+        // 一鍵安靜開著時，「重要」也不響，改成沒有聲音的待確認通知
+        if (item.advanceImportant && !Quiet.isOn(ctx)) {
             try {
                 ContextCompat.startForegroundService(
                     ctx,
@@ -82,6 +84,7 @@ object Advance {
     }
 
     private fun post(ctx: Context, item: Item, eventMillis: Long, quiet: Boolean) {
+        val silent = quiet || Quiet.isOn(ctx)
         try {
             val nm = ctx.getSystemService(NotificationManager::class.java)
             val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
@@ -109,7 +112,7 @@ object Advance {
             val title = "提前提醒・" + item.label.ifBlank { "鬧鐘" }
             val line = "${item.timeText()} 開始（${Fmt.untilMillis(System.currentTimeMillis(), eventMillis)}）"
             val big = if (item.note.isBlank()) line else line + "\n" + item.note
-            val n = NotificationCompat.Builder(ctx, if (quiet) CH_QUIET else CH)
+            val n = NotificationCompat.Builder(ctx, if (silent) CH_QUIET else CH)
                 .setSmallIcon(R.drawable.ic_stat_alarm)
                 .setContentTitle(title)
                 .setContentText(line)

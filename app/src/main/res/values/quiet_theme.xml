@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 一鍵安靜：一律深色 -->
+    <style name="Theme.Quiet" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/quiet_bg</item>
+        <item name="android:statusBarColor">@color/quiet_bg</item>
+        <item name="android:navigationBarColor">@color/quiet_bg</item>
+    </style>
+    <color name="quiet_bg">#FF0A1013</color>
+    <color name="quiet_launcher_bg">#263238</color>
+</resources>
