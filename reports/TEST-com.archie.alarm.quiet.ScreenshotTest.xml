@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.archie.alarm.quiet.ScreenshotTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-11-20T00:40:26" hostname="runnervmccnms" time="9.793">
+  <properties/>
+  <testcase name="firstRun" classname="com.archie.alarm.quiet.ScreenshotTest" time="8.197"/>
+  <testcase name="quietOn" classname="com.archie.alarm.quiet.ScreenshotTest" time="0.663"/>
+  <testcase name="afterQuiet" classname="com.archie.alarm.quiet.ScreenshotTest" time="0.488"/>
+  <testcase name="quietOnPowerSave" classname="com.archie.alarm.quiet.ScreenshotTest" time="0.445"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
