@@ -184,7 +184,7 @@ private fun OnContent(s: ScreenState, a: ScreenActions) {
     ) {
         StatusItem(s.applied.ringer, R.drawable.ic_m_volume_up, "鈴聲靜音")
         StatusItem(s.applied.dnd, R.drawable.ic_m_layers, "勿擾全擋（含鬧鐘）")
-        StatusItem(s.applied.brightness, R.drawable.ic_m_light_mode, "螢幕調到最暗")
+        StatusItem(s.applied.brightness, R.drawable.ic_m_light_mode, "螢幕調暗")
         StatusItem(
             s.applied.calls && s.applied.contacts,
             R.drawable.ic_m_call,
@@ -799,5 +799,5 @@ object Samples {
         skipped: List<Quiet.SkippedAlarm> = emptyList(),
         powerSave: Boolean = false,
         powerLeftOn: Boolean = false,
-    ) = ScreenState(on, perms, allApplied, calls, skipped, now - 30 * 60_000L, powerSave, powerLeftOn, "0.16")
+    ) = ScreenState(on, perms, allApplied, calls, skipped, now - 30 * 60_000L, powerSave, powerLeftOn, "0.17")
 }

@@ -34,6 +34,9 @@ object Quiet {
     const val AUTO_OFF_MS = 4L * 60 * 60 * 1000
 
     private const val PREFS = "quiet_state"
+
+    /** 安靜時的亮度（0～255）。v0.16 用 1 太暗看不到，改成 25：在暗處看得清楚、又不刺眼。 */
+    const val QUIET_BRIGHTNESS = 25
     private const val MAX_EVENTS = 30
     private const val CH_SKIPPED = "quiet_skipped"
 
@@ -130,7 +133,7 @@ object Quiet {
             val cr = c.contentResolver
             Settings.System.getInt(cr, Settings.System.SCREEN_BRIGHTNESS_MODE, 1) ==
                 Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL &&
-                Settings.System.getInt(cr, Settings.System.SCREEN_BRIGHTNESS, 255) <= 10
+                Settings.System.getInt(cr, Settings.System.SCREEN_BRIGHTNESS, 255) <= QUIET_BRIGHTNESS + 10
         } catch (_: Exception) {
             false
         }
@@ -182,14 +185,14 @@ object Quiet {
             }
         }
 
-        // 2. 螢幕調到最暗
+        // 2. 螢幕調暗（不是最暗，要看得到）
         if (canBright) {
             try {
                 Settings.System.putInt(
                     cr, Settings.System.SCREEN_BRIGHTNESS_MODE,
                     Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL,
                 )
-                Settings.System.putInt(cr, Settings.System.SCREEN_BRIGHTNESS, 1)
+                Settings.System.putInt(cr, Settings.System.SCREEN_BRIGHTNESS, QUIET_BRIGHTNESS)
                 e.putBoolean("a_bright", true)
             } catch (_: Exception) {
             }
