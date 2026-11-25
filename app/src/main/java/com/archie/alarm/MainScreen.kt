@@ -21,6 +21,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -328,7 +329,7 @@ fun MainScreen(permTick: Int, version: String) {
                     Text("沒有啟用中的鬧鐘", fontSize = 18.sp, color = nextMain)
                 }
             }
-            QuietButton(quietOn) { toggleQuiet() }
+            QuietButton(quietOn, onLong = { ctx.startActivity(Intent(ctx, QuietActivity::class.java)) }) { toggleQuiet() }
         }
         if (quietOn) {
             Text(
@@ -545,7 +546,8 @@ private fun AddCell(active: Boolean, modifier: Modifier, onClick: () -> Unit) {
 }
 
 @Composable
-private fun QuietButton(on: Boolean, onClick: () -> Unit) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun QuietButton(on: Boolean, onLong: () -> Unit, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val green = if (isSystemInDarkTheme()) QuietGreen else Color(0xFF1B9E5A)
     Column(
@@ -555,7 +557,7 @@ private fun QuietButton(on: Boolean, onClick: () -> Unit) {
             .clip(CardShape)
             .background(if (on) green.copy(alpha = 0.16f) else cs.surface)
             .border(3.dp, if (on) green else cs.outlineVariant, CardShape)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLong)
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,

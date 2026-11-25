@@ -72,20 +72,15 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
-        <!-- ===== 一鍵安靜（同一個 App，桌面上另一個圖示） ===== -->
+        <!-- ===== 一鍵安靜（從鬧鐘主畫面的按鈕進入，桌面不另放圖示） ===== -->
         <activity
             android:name=".quiet.QuietActivity"
-            android:exported="true"
+            android:exported="false"
             android:icon="@mipmap/quiet_ic_launcher"
             android:label="@string/quiet_app_name"
             android:launchMode="singleTask"
             android:taskAffinity="com.archie.alarm2.quiet"
-            android:theme="@style/Theme.Quiet">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/Theme.Quiet" />
 
         <service
             android:name=".quiet.QuietScreeningService"
