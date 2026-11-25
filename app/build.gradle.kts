@@ -11,8 +11,8 @@ android {
         applicationId = "com.archie.alarm2"
         minSdk = 27
         targetSdk = 34
-        versionCode = 20
-        versionName = "0.20"
+        versionCode = 21
+        versionName = "0.21"
     }
 
     signingConfigs {

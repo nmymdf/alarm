@@ -313,22 +313,33 @@ fun MainScreen(permTick: Int, version: String) {
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val den = LocalDensity.current
+                val fsSmall = with(den) { 15.dp.toSp() }
+                val fsBig = with(den) { 26.dp.toSp() }
                 if (next != null) {
                     val (i, t, n) = next
-                    Column(Modifier.weight(1f)) {
-                        Text("⏰ 下一個響鈴", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = nextSub, maxLines = 1, softWrap = false)
+                    Column(Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "⏰ 下一個響鈴", fontSize = fsSmall, fontWeight = FontWeight.Bold, color = nextSub,
+                                maxLines = 1, softWrap = false,
+                            )
+                            Text(
+                                "${Fmt.dayLabel(t.toLocalDate(), n.toLocalDate())}・${shortUntil(n, t)}",
+                                fontSize = fsSmall, fontWeight = FontWeight.Bold, color = nextSub,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End,
+                                modifier = Modifier.weight(1f).padding(start = 8.dp),
+                            )
+                        }
                         Text(
                             "${i.timeText()}　${i.label.ifBlank { "鬧鐘" }}",
-                            fontSize = 22.sp, fontWeight = FontWeight.Bold, color = nextMain,
+                            fontSize = fsBig, fontWeight = FontWeight.Bold, color = nextMain,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 2.dp),
                         )
                     }
-                    Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 8.dp)) {
-                        Text(Fmt.dayLabel(t.toLocalDate(), n.toLocalDate()), fontSize = 14.sp, color = nextSub, maxLines = 1, softWrap = false)
-                        Text(shortUntil(n, t), fontSize = 14.sp, color = nextSub, maxLines = 1, softWrap = false)
-                    }
                 } else {
-                    Text("沒有啟用中的鬧鐘", fontSize = 18.sp, color = nextMain)
+                    Text("沒有啟用中的鬧鐘", fontSize = with(den) { 18.dp.toSp() }, color = nextMain)
                 }
             }
             QuietButton(quietOn, onLong = { ctx.startActivity(Intent(ctx, QuietActivity::class.java)) }) { toggleQuiet() }
@@ -579,7 +590,7 @@ private fun QuietButton(on: Boolean, onLong: () -> Unit, onClick: () -> Unit) {
     val green = if (isSystemInDarkTheme()) QuietGreen else Color(0xFF1B9E5A)
     Column(
         Modifier
-            .width(92.dp)
+            .width(84.dp)
             .fillMaxHeight()
             .clip(CardShape)
             .background(if (on) green.copy(alpha = 0.16f) else cs.surface)
@@ -589,9 +600,10 @@ private fun QuietButton(on: Boolean, onLong: () -> Unit, onClick: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("🔕", fontSize = 24.sp, maxLines = 1)
+        val den = LocalDensity.current
+        Text("🔕", fontSize = with(den) { 24.dp.toSp() }, maxLines = 1)
         Text(
-            if (on) "安靜中" else "一鍵安靜", fontSize = 16.sp, fontWeight = FontWeight.Bold,
+            if (on) "安靜中" else "一鍵安靜", fontSize = with(den) { 16.dp.toSp() }, fontWeight = FontWeight.Bold,
             color = if (on) green else cs.onSurface, maxLines = 1, softWrap = false,
         )
     }
@@ -983,7 +995,7 @@ private fun EditRow(item: Item, isNew: Boolean = false, onCommit: (Item) -> Unit
                 Text("用說的", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = cs.onSurface, maxLines = 1, softWrap = false)
             }
             Text(
-                voiceMsg ?: "例：每月20號早上九點 繳費 提前三天",
+                voiceMsg ?: "例：每月20號九點 繳費 提前三天",
                 fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
                 color = if (voiceErr) cs.error else if (voiceMsg != null) cs.primary else cs.onSurfaceVariant,
             )
