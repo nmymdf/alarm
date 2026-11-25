@@ -41,6 +41,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -316,14 +318,14 @@ fun MainScreen(permTick: Int, version: String) {
                     Column(Modifier.weight(1f)) {
                         Text("⏰ 下一個響鈴", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = nextSub, maxLines = 1, softWrap = false)
                         Text(
-                            "${i.timeText()} ${i.label}".trim(),
+                            "${i.timeText()}　${i.label.ifBlank { "鬧鐘" }}",
                             fontSize = 22.sp, fontWeight = FontWeight.Bold, color = nextMain,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                     }
                     Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 8.dp)) {
                         Text(Fmt.dayLabel(t.toLocalDate(), n.toLocalDate()), fontSize = 14.sp, color = nextSub, maxLines = 1, softWrap = false)
-                        Text(Fmt.until(n, t), fontSize = 14.sp, color = nextSub, maxLines = 1, softWrap = false)
+                        Text(shortUntil(n, t), fontSize = 14.sp, color = nextSub, maxLines = 1, softWrap = false)
                     }
                 } else {
                     Text("沒有啟用中的鬧鐘", fontSize = 18.sp, color = nextMain)
@@ -362,7 +364,7 @@ fun MainScreen(permTick: Int, version: String) {
                 .clip(CardShape)
                 .background(cs.surface),
         ) {
-            AddCell(adding, Modifier.weight(1.25f)) {
+            AddCell(adding, Modifier.weight(1.7f)) {
                 if (adding) {
                     adding = false
                 } else {
@@ -404,7 +406,28 @@ fun MainScreen(permTick: Int, version: String) {
             }
         }
 
-        LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp)) {
+        if (adding && editingId == null) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                EditRow(
+                    item = Item(id = NEW_ID, hour = 9, minute = 0),
+                    isNew = true,
+                    onCommit = { u ->
+                        val nu = u.copy(id = Store.nextId())
+                        Store.upsert(nu)
+                        afterSave(nu)
+                        adding = false
+                    },
+                    onCancel = { adding = false },
+                    onTest = { testRing() },
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+        } else LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp)) {
             items(sorted, key = { it.id }) { item ->
                 Box(Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
                     if (editingId == item.id) {
@@ -431,17 +454,6 @@ fun MainScreen(permTick: Int, version: String) {
             }
         }
 
-        if (adding && editingId == null) {
-            Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                QuickRow(onAdd = { i, defaulted ->
-                    val u = i.copy(id = Store.nextId())
-                    Store.upsert(u)
-                    afterSave(u)
-                    if (defaulted) msg = "已儲存。沒聽到時間，先設 09:00，點這筆可以修改。"
-                    adding = false
-                })
-            }
-        }
     }
 
     msg?.let { m ->
@@ -449,7 +461,7 @@ fun MainScreen(permTick: Int, version: String) {
             m, fontSize = 17.sp, color = Color.White,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(start = 20.dp, end = 20.dp, bottom = if (adding) 92.dp else 24.dp)
+                .padding(start = 20.dp, end = 20.dp, bottom = 24.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xE6323640))
                 .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -520,7 +532,21 @@ private fun ToolCell(text: String, color: Color, modifier: Modifier, onClick: ()
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, fontSize = 20.sp, color = color, maxLines = 1, softWrap = false)
+        val fs = with(LocalDensity.current) { 17.dp.toSp() }
+        Text(text, fontSize = fs, color = color, maxLines = 1, softWrap = false)
+    }
+}
+
+private const val NEW_ID = -1L
+
+private fun shortUntil(now: LocalDateTime, t: LocalDateTime): String {
+    val m = java.time.Duration.between(now, t).toMinutes().coerceAtLeast(0)
+    return when {
+        m < 1 -> "不到 1 分鐘"
+        m < 60 -> "$m 分鐘後"
+        m < 180 -> "${m / 60} 小時 ${m % 60} 分後"
+        m < 1440 -> "約 ${(m + 30) / 60} 小時後"
+        else -> "${m / 1440} 天後"
     }
 }
 
@@ -541,7 +567,8 @@ private fun AddCell(active: Boolean, modifier: Modifier, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text("＋新增", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = gold, maxLines = 1, softWrap = false)
+        val fs = with(LocalDensity.current) { 24.dp.toSp() }
+        Text("新增", fontSize = fs, fontWeight = FontWeight.Bold, color = gold, maxLines = 1, softWrap = false)
     }
 }
 
@@ -771,12 +798,13 @@ private fun FormRow(label: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, onTest: () -> Unit) {
+private fun EditRow(item: Item, isNew: Boolean = false, onCommit: (Item) -> Unit, onCancel: () -> Unit, onTest: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val focus = LocalFocusManager.current
     val today = LocalDate.now()
 
-    val t0 = item.timeText()
+    val ctx = LocalContext.current
+    val t0 = if (isNew) "" else item.timeText()
     var time by remember(item.id) { mutableStateOf(TextFieldValue(t0, TextRange(0, t0.length))) }
     var label by remember(item.id) { mutableStateOf(TextFieldValue(item.label, TextRange(item.label.length))) }
     var note by remember(item.id) { mutableStateOf(TextFieldValue(item.note, TextRange(item.note.length))) }
@@ -807,7 +835,60 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
     val labelFr = remember { FocusRequester() }
     val noteFr = remember { FocusRequester() }
 
-    LaunchedEffect(item.id) { timeFr.requestFocus() }
+    LaunchedEffect(item.id) { if (!isNew) timeFr.requestFocus() }
+    var voiceMsg by remember(item.id) { mutableStateOf<String?>(null) }
+    var voiceErr by remember(item.id) { mutableStateOf(false) }
+
+    fun fill(r: Item, defaulted: Boolean) {
+        val tt = r.timeText()
+        time = TextFieldValue(tt, TextRange(tt.length))
+        label = TextFieldValue(r.label, TextRange(r.label.length))
+        note = TextFieldValue(r.note, TextRange(r.note.length))
+        monthly = r.monthDay > 0
+        val md = if (r.monthDay > 0) r.monthDay.toString() else ""
+        monthText = TextFieldValue(md, TextRange(md.length))
+        mask = if (r.monthDay > 0) 0 else r.mask
+        weekly = r.monthDay == 0 && r.mask != 0 && r.mask != 127 && r.mask != 31 && r.mask != 96
+        val dd = r.dateEpochDay?.let { Parser.formatDate(LocalDate.ofEpochDay(it), today) } ?: ""
+        date = TextFieldValue(dd, TextRange(dd.length))
+        advMin = r.advanceMin
+        advImp = r.advanceImportant
+        timeError = null; dateError = null; monthError = null; weekError = null
+        voiceErr = false
+        voiceMsg = if (defaulted) "沒聽到時間，先填 09:00，請確認後按「儲存」" else "已填好，請確認後按「儲存」"
+    }
+
+    val speech = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK) {
+            val list = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).orEmpty()
+            if (list.isNotEmpty()) {
+                val now = LocalDateTime.now()
+                val best = list.firstOrNull { Parser.parseQuick(it, now).item != null } ?: list.first()
+                val r = Parser.parseQuick(best, now)
+                if (r.item != null) {
+                    fill(r.item, r.defaultedTime)
+                } else {
+                    voiceErr = true
+                    voiceMsg = "「$best」：${r.error ?: "聽不懂，請再說一次"}"
+                }
+            }
+        }
+    }
+
+    fun startVoice() {
+        try {
+            speech.launch(
+                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-TW")
+                    .putExtra(RecognizerIntent.EXTRA_PROMPT, "例如：每月20號早上九點 繳費 提前三天")
+                    .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            )
+        } catch (_: Exception) {
+            voiceErr = true
+            voiceMsg = "這支手機沒有語音辨識服務，請改用鍵盤上的麥克風"
+        }
+    }
 
     fun onCellFocus(focused: Boolean) {
         if (focused) {
@@ -868,10 +949,45 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
             .fillMaxWidth()
             .clip(CardShape)
             .background(cs.surface)
-            .border(3.dp, if (isSystemInDarkTheme()) Color(0xFFB388FF) else Color(0xFF7E57C2), CardShape)
+            .border(
+                3.dp,
+                if (isNew) {
+                    if (isSystemInDarkTheme()) Color(0xFFE7C14A) else Color(0xFFB8860B)
+                } else {
+                    if (isSystemInDarkTheme()) Color(0xFFB388FF) else Color(0xFF7E57C2)
+                },
+                CardShape,
+            )
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        if (isNew) {
+            val gold = if (isSystemInDarkTheme()) Color(0xFFE7C14A) else Color(0xFFB8860B)
+            Text(
+                "新增提醒", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = gold,
+                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(cs.surfaceVariant)
+                    .border(2.dp, cs.primary, RoundedCornerShape(30.dp))
+                    .clickable { focus.clearFocus(); startVoice() },
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MicIcon(cs.primary)
+                Spacer(Modifier.width(12.dp))
+                Text("用說的", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = cs.onSurface, maxLines = 1, softWrap = false)
+            }
+            Text(
+                voiceMsg ?: "例：每月20號早上九點 繳費 提前三天",
+                fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                color = if (voiceErr) cs.error else if (voiceMsg != null) cs.primary else cs.onSurfaceVariant,
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Cell(
                 value = time, onValueChange = { time = it; timeError = null; dateError = null },
@@ -1037,7 +1153,22 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ActionButton("取消", false, Modifier.weight(1f), onCancel)
-            ActionButton("儲存", true, Modifier.weight(2f)) { commit() }
+            if (isNew) {
+                val gold = if (isSystemInDarkTheme()) Color(0xFFE7C14A) else Color(0xFFB8860B)
+                Box(
+                    Modifier
+                        .weight(2f)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(gold)
+                        .clickable { commit() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("儲存", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color(0xFF231B00), maxLines = 1, softWrap = false)
+                }
+            } else {
+                ActionButton("儲存", true, Modifier.weight(2f)) { commit() }
+            }
         }
     }
 }
