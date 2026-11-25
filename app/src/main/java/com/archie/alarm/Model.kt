@@ -115,7 +115,7 @@ data class Item(
 object Fmt {
     const val DOW = "一二三四五六日"
 
-    val ADVANCE_CHOICES = listOf(0, 5, 15, 30, 60, 180, 1440, 4320)
+    val ADVANCE_CHOICES = listOf(0, 5, 15, 30, 60, 180, 1440, 4320, 10080, 43200)
 
     fun dow(d: LocalDate): Char = DOW[d.dayOfWeek.value - 1]
 
@@ -142,6 +142,8 @@ object Fmt {
         m <= 0 -> "不提前"
         m < 60 -> "$m 分鐘前"
         m < 1440 -> "${m / 60} 小時前"
+        m >= 43200 && m % 43200 == 0 -> "${m / 43200} 個月前"
+        m >= 10080 && m % 10080 == 0 -> "${m / 10080} 週前"
         else -> "${m / 1440} 天前"
     }
 
@@ -149,6 +151,8 @@ object Fmt {
     fun advShort(m: Int): String = when {
         m < 60 -> "$m 分"
         m < 1440 -> "${m / 60} 小時"
+        m >= 43200 && m % 43200 == 0 -> "${m / 43200} 個月"
+        m >= 10080 && m % 10080 == 0 -> "${m / 10080} 週"
         else -> "${m / 1440} 天"
     }
 }

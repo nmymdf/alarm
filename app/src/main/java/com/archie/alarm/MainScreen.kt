@@ -91,6 +91,9 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.compose.runtime.DisposableEffect
+import com.archie.alarm.quiet.Quiet
+import com.archie.alarm.quiet.QuietActivity
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -153,6 +156,17 @@ fun MainScreen(permTick: Int, version: String) {
     var selected by remember { mutableStateOf(setOf<Long>()) }
     var confirmDelete by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    var quietOn by remember { mutableStateOf(Quiet.isOn(ctx)) }
+    LaunchedEffect(permTick, tick) { quietOn = Quiet.isOn(ctx) }
+    DisposableEffect(Unit) {
+        val prefs = Quiet.prefs(ctx)
+        val l = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            quietOn = Quiet.isOn(ctx)
+        }
+        prefs.registerOnSharedPreferenceChangeListener(l)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(l) }
+    }
     val zone = ZoneId.systemDefault()
 
     val sorted = remember(items) {
@@ -220,7 +234,24 @@ fun MainScreen(permTick: Int, version: String) {
         }
     }
 
-    BackHandler(enabled = editingId != null) { editingId = null }
+    BackHandler(enabled = editingId != null || adding) {
+        if (editingId != null) editingId = null else adding = false
+    }
+
+    fun toggleQuiet() {
+        try {
+            if (Quiet.isOn(ctx)) {
+                Quiet.turnOff(ctx)
+            } else if (!Quiet.perms(ctx).dnd) {
+                ctx.startActivity(Intent(ctx, QuietActivity::class.java))
+            } else {
+                Quiet.turnOn(ctx)
+            }
+        } catch (_: Exception) {
+            ctx.startActivity(Intent(ctx, QuietActivity::class.java))
+        }
+        quietOn = Quiet.isOn(ctx)
+    }
 
     LaunchedEffect(msg) {
         if (msg != null) {
@@ -257,43 +288,61 @@ fun MainScreen(permTick: Int, version: String) {
             )
         }
 
+        val dark = isSystemInDarkTheme()
+        val nextBg = if (dark) Color(0xFF2A1517) else Color(0xFFFFEBEB)
+        val nextBorder = if (dark) Color(0xFFFF5A5A) else Color(0xFFE53935)
+        val nextMain = if (dark) Color.White else Color(0xFF5A1010)
+        val nextSub = if (dark) Color(0xFFFFB3B3) else Color(0xFFB71C1C)
         Row(
             Modifier
                 .padding(horizontal = 12.dp)
                 .fillMaxWidth()
-                .clip(CardShape)
-                .background(cs.primaryContainer)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .height(IntrinsicSize.Min),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (next != null) {
-                val (i, t, n) = next
-                val adv = i.nextAdvance(n)
-                Text(
-                    "${i.timeText()} ${i.label}".trim(),
-                    fontSize = 24.sp, fontWeight = FontWeight.Medium, color = cs.onPrimaryContainer,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                )
-                Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 10.dp)) {
-                    Text(
-                        Fmt.dayLabel(t.toLocalDate(), n.toLocalDate()), fontSize = 15.sp,
-                        color = cs.onPrimaryContainer.copy(alpha = 0.85f), maxLines = 1, softWrap = false,
-                    )
-                    Text(
-                        Fmt.until(n, t), fontSize = 15.sp,
-                        color = cs.onPrimaryContainer.copy(alpha = 0.85f), maxLines = 1, softWrap = false,
-                    )
-                    adv?.let {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(CardShape)
+                    .background(nextBg)
+                    .border(3.dp, nextBorder, CardShape)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (next != null) {
+                    val (i, t, n) = next
+                    Column(Modifier.weight(1f)) {
+                        Text("⏰ 下一個響鈴", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = nextSub, maxLines = 1, softWrap = false)
                         Text(
-                            "提前 %02d:%02d".format(it.hour, it.minute), fontSize = 13.sp,
-                            color = cs.onPrimaryContainer.copy(alpha = 0.85f), maxLines = 1, softWrap = false,
+                            "${i.timeText()} ${i.label}".trim(),
+                            fontSize = 22.sp, fontWeight = FontWeight.Bold, color = nextMain,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 8.dp)) {
+                        Text(Fmt.dayLabel(t.toLocalDate(), n.toLocalDate()), fontSize = 14.sp, color = nextSub, maxLines = 1, softWrap = false)
+                        Text(Fmt.until(n, t), fontSize = 14.sp, color = nextSub, maxLines = 1, softWrap = false)
+                    }
+                } else {
+                    Text("沒有啟用中的鬧鐘", fontSize = 18.sp, color = nextMain)
                 }
-            } else {
-                Text("沒有啟用中的鬧鐘", fontSize = 18.sp, color = cs.onPrimaryContainer)
             }
+            QuietButton(quietOn) { toggleQuiet() }
+        }
+        if (quietOn) {
+            Text(
+                "鬧鐘不響・來電拒接　再按一次結束",
+                fontSize = 16.sp, color = QuietGreen, textAlign = TextAlign.Center, maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(start = 12.dp, end = 12.dp, top = 6.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(QuietGreen.copy(alpha = 0.12f))
+                    .border(1.dp, QuietGreen.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
 
         pendingList.forEach { p ->
@@ -312,6 +361,15 @@ fun MainScreen(permTick: Int, version: String) {
                 .clip(CardShape)
                 .background(cs.surface),
         ) {
+            AddCell(adding, Modifier.weight(1.25f)) {
+                if (adding) {
+                    adding = false
+                } else {
+                    editingId = null
+                    adding = true
+                }
+            }
+            ToolDivider()
             ToolCell(if (allSelected) "全不選" else "全選", cs.primary, Modifier.weight(1f)) {
                 selected = if (allSelected) emptySet() else items.map { it.id }.toSet()
             }
@@ -365,20 +423,23 @@ fun MainScreen(permTick: Int, version: String) {
                             checked = item.id in selected,
                             onCheck = { c -> selected = if (c) selected + item.id else selected - item.id },
                             onToggle = { on -> setEnabled(setOf(item.id), on) },
-                            onEdit = { editingId = item.id },
+                            onEdit = { adding = false; editingId = item.id },
                         )
                     }
                 }
             }
         }
 
-        Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-            QuickRow(onAdd = { i, defaulted ->
-                val u = i.copy(id = Store.nextId())
-                Store.upsert(u)
-                afterSave(u)
-                if (defaulted) msg = "已儲存。沒聽到時間，先設 09:00，點這筆可以修改。"
-            })
+        if (adding && editingId == null) {
+            Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                QuickRow(onAdd = { i, defaulted ->
+                    val u = i.copy(id = Store.nextId())
+                    Store.upsert(u)
+                    afterSave(u)
+                    if (defaulted) msg = "已儲存。沒聽到時間，先設 09:00，點這筆可以修改。"
+                    adding = false
+                })
+            }
         }
     }
 
@@ -387,7 +448,7 @@ fun MainScreen(permTick: Int, version: String) {
             m, fontSize = 17.sp, color = Color.White,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(start = 20.dp, end = 20.dp, bottom = 92.dp)
+                .padding(start = 20.dp, end = 20.dp, bottom = if (adding) 92.dp else 24.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xE6323640))
                 .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -462,6 +523,51 @@ private fun ToolCell(text: String, color: Color, modifier: Modifier, onClick: ()
     }
 }
 
+private val QuietGreen = Color(0xFF39E58C)
+private val AddGold = Color(0xFFE7C14A)
+
+@Composable
+private fun AddCell(active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val gold = if (dark) AddGold else Color(0xFFB8860B)
+    Box(
+        modifier
+            .height(48.dp)
+            .padding(5.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (active) gold.copy(alpha = 0.22f) else Color.Transparent)
+            .border(2.dp, gold, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("＋新增", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = gold, maxLines = 1, softWrap = false)
+    }
+}
+
+@Composable
+private fun QuietButton(on: Boolean, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val green = if (isSystemInDarkTheme()) QuietGreen else Color(0xFF1B9E5A)
+    Column(
+        Modifier
+            .width(92.dp)
+            .fillMaxHeight()
+            .clip(CardShape)
+            .background(if (on) green.copy(alpha = 0.16f) else cs.surface)
+            .border(3.dp, if (on) green else cs.outlineVariant, CardShape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text("🔕", fontSize = 24.sp, maxLines = 1)
+        Text(
+            if (on) "安靜中" else "一鍵安靜", fontSize = 16.sp, fontWeight = FontWeight.Bold,
+            color = if (on) green else cs.onSurface, maxLines = 1, softWrap = false,
+        )
+    }
+}
+
 @Composable
 private fun ToolDivider() {
     Box(
@@ -501,15 +607,16 @@ private fun ItemRow(
     val once = item.mask == 0 && item.monthDay == 0
     val c = cardColors(once)
     val a = if (item.enabled) 1f else 0.5f
-    val today = LocalDate.now()
+    val now = LocalDateTime.now()
+    val head = if (once) {
+        val d = item.nextTrigger(now)?.toLocalDate() ?: item.dateEpochDay?.let { LocalDate.ofEpochDay(it) }
+        d?.let { Fmt.dayLabel(it, now.toLocalDate()) } ?: "僅一次"
+    } else item.repeatText()
     val line2 = listOfNotNull(
-        if (once) {
-            item.dateEpochDay?.let { Fmt.dayLabel(LocalDate.ofEpochDay(it), today) }
-        } else null,
-        if (once) "僅一次" else item.repeatText(),
-        if (item.advanceMin > 0) "提前 ${Fmt.advShort(item.advanceMin)}" + if (item.advanceImportant) "・重要" else "" else null,
+        item.label.ifBlank { "鬧鐘" },
+        if (item.advanceMin > 0) "提前 ${Fmt.advShort(item.advanceMin)}" + if (item.advanceImportant) "（重要）" else "" else null,
         item.note.ifBlank { null },
-    ).joinToString("・")
+    ).joinToString("　")
 
     Row(
         Modifier
@@ -528,28 +635,26 @@ private fun ItemRow(
             Modifier
                 .weight(1f)
                 .clickable(onClick = onEdit)
-                .padding(start = 2.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = 0.dp, end = 10.dp, top = 3.dp, bottom = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Checkbox(checked = checked, onCheckedChange = onCheck)
             Column(Modifier.weight(1f)) {
                 Row {
                     Text(
-                        item.timeText(), fontSize = 30.sp, fontWeight = FontWeight.Medium,
-                        color = cs.onSurface.copy(alpha = a), maxLines = 1, softWrap = false,
+                        head, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+                        color = c.text.copy(alpha = a), maxLines = 1, softWrap = false,
                         modifier = Modifier.alignByBaseline(),
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        item.label.ifBlank { "鬧鐘" }, fontSize = 21.sp,
-                        color = cs.onSurface.copy(alpha = a), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .weight(1f)
-                            .alignByBaseline(),
+                        item.timeText(), fontSize = 28.sp, fontWeight = FontWeight.Bold,
+                        color = c.text.copy(alpha = a), maxLines = 1, softWrap = false,
+                        modifier = Modifier.alignByBaseline(),
                     )
                 }
                 Text(
-                    line2, fontSize = 16.sp, color = c.text.copy(alpha = a),
+                    line2, fontSize = 17.sp, color = c.text.copy(alpha = a),
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -677,6 +782,10 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
     var date by remember(item.id) { mutableStateOf(TextFieldValue(d0, TextRange(d0.length))) }
     var mask by remember(item.id) { mutableIntStateOf(item.mask) }
     var monthly by remember(item.id) { mutableStateOf(item.monthDay > 0) }
+    var weekly by remember(item.id) {
+        mutableStateOf(item.monthDay == 0 && item.mask != 0 && item.mask != 127 && item.mask != 31 && item.mask != 96)
+    }
+    var weekError by remember(item.id) { mutableStateOf<String?>(null) }
     val md0 = if (item.monthDay > 0) item.monthDay.toString() else ""
     var monthText by remember(item.id) { mutableStateOf(TextFieldValue(md0, TextRange(md0.length))) }
     val monthFr = remember { FocusRequester() }
@@ -710,6 +819,10 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
         if (tm == null) {
             timeError = "時間格式不對，例如 07:30"
             timeFr.requestFocus()
+            return
+        }
+        if (weekly && !monthly && mask == 0) {
+            weekError = "請至少選一天"
             return
         }
         var monthDay = 0
@@ -753,7 +866,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
             .fillMaxWidth()
             .clip(CardShape)
             .background(cs.surface)
-            .border(2.dp, cs.primary, CardShape)
+            .border(3.dp, if (isSystemInDarkTheme()) Color(0xFFB388FF) else Color(0xFF7E57C2), CardShape)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -764,7 +877,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
                 placeholder = "07:30", keyboardType = KeyboardType.Number, imeAction = ImeAction.Next,
                 isError = timeError != null,
                 onFocusChange = { onCellFocus(it) },
-                onAction = { if (monthly) monthFr.requestFocus() else if (mask == 0) dateFr.requestFocus() else labelFr.requestFocus() },
+                onAction = { if (monthly) monthFr.requestFocus() else if (!weekly && mask == 0) dateFr.requestFocus() else labelFr.requestFocus() },
             )
             Cell(
                 value = label, onValueChange = { label = it },
@@ -784,20 +897,28 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
             onAction = { commit() },
         )
 
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip("每天", !monthly && mask == 127, Modifier.weight(1f)) { monthly = false; mask = 127; dateError = null }
-            Chip("工作日", !monthly && mask == 31, Modifier.weight(1f)) { monthly = false; mask = 31; dateError = null }
-            Chip("週末", !monthly && mask == 96, Modifier.weight(1f)) { monthly = false; mask = 96; dateError = null }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip("每月", monthly, Modifier.weight(1f)) { monthly = true; mask = 0; dateError = null }
-            Chip("僅一次", !monthly && mask == 0, Modifier.weight(1f)) { monthly = false; mask = 0 }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Fmt.DOW.forEachIndexed { i, c ->
-                val on = !monthly && mask and (1 shl i) != 0
-                Dot(c.toString(), on, 1f, Modifier.size(38.dp), 14) { monthly = false; mask = mask xor (1 shl i) }
+        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            val todayBit = 1 shl (today.dayOfWeek.value - 1)
+            fun pick(m: Int, w: Boolean = false, mo: Boolean = false) {
+                monthly = mo; weekly = w; mask = m; dateError = null; weekError = null
             }
+            Chip("每天", !monthly && !weekly && mask == 127, Modifier.weight(1f)) { pick(127) }
+            Chip("工作日", !monthly && !weekly && mask == 31, Modifier.weight(1f)) { pick(31) }
+            Chip("週末", !monthly && !weekly && mask == 96, Modifier.weight(1f)) { pick(96) }
+            Chip("每週", weekly && !monthly, Modifier.weight(1f)) {
+                pick(if (weekly) mask else if (mask == 0 || mask == 127 || mask == 31 || mask == 96) todayBit else mask, w = true)
+            }
+            Chip("每月", monthly, Modifier.weight(1f)) { pick(0, mo = true) }
+            Chip("一次", !monthly && !weekly && mask == 0, Modifier.weight(1f)) { pick(0) }
+        }
+        if (weekly && !monthly) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Fmt.DOW.forEachIndexed { i, c ->
+                    val on = mask and (1 shl i) != 0
+                    Dot(c.toString(), on, 1f, Modifier.size(40.dp), 16) { mask = mask xor (1 shl i); weekError = null }
+                }
+            }
+            weekError?.let { Text(it, color = cs.error, fontSize = 13.sp) }
         }
 
         if (monthly) {
@@ -813,7 +934,7 @@ private fun EditRow(item: Item, onCommit: (Item) -> Unit, onCancel: () -> Unit, 
             }
             Text("31 號遇到小月，會在月底最後一天響", fontSize = 13.sp, color = cs.onSurfaceVariant)
             monthError?.let { Text(it, color = cs.error, fontSize = 12.sp) }
-        } else if (mask == 0) {
+        } else if (!weekly && mask == 0) {
             FormRow("日期") {
                 Cell(
                     value = date, onValueChange = { date = it; dateError = null },
@@ -927,6 +1048,13 @@ private fun QuickRow(onAdd: (Item, Boolean) -> Unit) {
     val ctx = LocalContext.current
     var tv by remember { mutableStateOf(TextFieldValue("")) }
     var err by remember { mutableStateOf<String?>(null) }
+    val inputFr = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        try {
+            inputFr.requestFocus()
+        } catch (_: Exception) {
+        }
+    }
 
     fun tryAdd(text: String = tv.text) {
         if (text.isBlank()) {
@@ -979,7 +1107,7 @@ private fun QuickRow(onAdd: (Item, Boolean) -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Cell(
                 value = tv, onValueChange = { tv = it; err = null },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f), fr = inputFr,
                 placeholder = "明天 7:00 起床",
                 imeAction = ImeAction.Done,
                 isError = err != null,
@@ -1127,12 +1255,17 @@ private fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier,
     val cs = MaterialTheme.colorScheme
     Box(
         modifier
-            .height(36.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .height(40.dp)
+            .clip(RoundedCornerShape(20.dp))
             .background(if (selected) cs.primary else cs.surfaceVariant)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, fontSize = 13.sp, color = if (selected) cs.onPrimary else cs.onSurface)
+        val fs = with(LocalDensity.current) { 15.dp.toSp() }
+        Text(
+            text, fontSize = fs, maxLines = 1, softWrap = false,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) cs.onPrimary else cs.onSurface,
+        )
     }
 }
