@@ -26,6 +26,12 @@ class AlarmReceiver : BroadcastReceiver() {
         Store.init(ctx)
         Pending.init(ctx)
         val id = intent.getLongExtra("id", -1L)
+        // 已刪除或找不到的鬧鐘：把它在系統裡殘留的響鈴全部清掉，什麼都不做
+        if (Store.get(id) == null) {
+            Scheduler.cancel(ctx, id)
+            Advance.clear(ctx, id)
+            return
+        }
         when (intent.getIntExtra("kind", Scheduler.MAIN)) {
             Scheduler.ACK -> {
                 Advance.clear(ctx, id)
