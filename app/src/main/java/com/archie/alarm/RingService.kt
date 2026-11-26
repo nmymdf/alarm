@@ -114,20 +114,36 @@ class RingService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        try {
-            startForegroundCompat(buildNotification(id, item, advMode))
-        } catch (e: Exception) {
-            item?.let { Fallback.post(this, it, "響鈴服務無法前景執行：${e.javaClass.simpleName}") }
+        if (item == null) {
+            try {
+                startForegroundCompat(buildNotification(id, null, advMode))
+            } catch (_: Exception) {
+            }
             stopSelf()
             return START_NOT_STICKY
         }
-        if (item == null) {
+        // 先標記「正在響」，再發出全螢幕通知；
+        // 不然響鈴畫面一打開就以為已經停了而自己關掉（螢幕不亮、沒有響鈴畫面）
+        running = true
+        try {
+            startForegroundCompat(buildNotification(id, item, advMode))
+        } catch (e: Exception) {
+            running = false
+            Fallback.post(this, item, "響鈴服務無法前景執行：${e.javaClass.simpleName}")
             stopSelf()
             return START_NOT_STICKY
         }
 
         stopSound()
         running = true
+        // 除了全螢幕通知，也直接叫出響鈴畫面（系統允許時會亮螢幕並顯示）
+        try {
+            startActivity(
+                Intent(this, RingActivity::class.java).putExtra("id", id).putExtra("adv", advMode)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            )
+        } catch (_: Exception) {
+        }
         postWatchNotification(id, item, advMode)
         val soundOk = startSound()
         if (!soundOk) Fallback.post(this, item, "找不到可播放的鬧鐘音效，請檢查系統鬧鐘鈴聲")

@@ -28,10 +28,11 @@ object Scheduler {
     }
 
     /** 重新排程：準時響鈴，以及（有設定且還沒過）的提前提醒 */
-    fun schedule(ctx: Context, item: Item) {
+    fun schedule(ctx: Context, item: Item, after: LocalDateTime? = null) {
         cancel(ctx, item.id)
         if (!item.enabled) return
-        val now = LocalDateTime.now()
+        val real = LocalDateTime.now()
+        val now = if (after != null && after.isAfter(real)) after else real
         val t = item.nextTrigger(now) ?: return
         setClock(ctx, item.id, epoch(t), MAIN, epoch(t))
         item.nextAdvance(now)?.let { setClock(ctx, item.id, epoch(it), ADV, epoch(t)) }

@@ -51,12 +51,26 @@ class AlarmReceiver : BroadcastReceiver() {
         // 準時響鈴（含稍後提醒再響）
         val snooze = intent.getIntExtra("kind", Scheduler.MAIN) == Scheduler.SNOOZE
         val item = Store.get(id) ?: return
+        val at = intent.getLongExtra("at", 0L)
+        // 同一筆、同一個時間的響鈴，2 分鐘內只響一次（避免重複響）
+        val key = "$id:${if (snooze) "s" else "m"}"
+        val p = ctx.getSharedPreferences("fired", Context.MODE_PRIVATE)
+        val nowMs = System.currentTimeMillis()
+        val lastAt = p.getLong("$key:at", -1L)
+        val lastMs = p.getLong("$key:ms", 0L)
+        if (nowMs - lastMs < 120_000L && (snooze || lastAt == at)) return
+        p.edit().putLong("$key:at", at).putLong("$key:ms", nowMs).commit()
         Advance.clear(ctx, id)
         if (!snooze) {
             if (item.mask == 0 && item.monthDay == 0) {
                 Store.upsert(item.copy(enabled = false))
             } else {
-                Scheduler.schedule(ctx, item)
+                // 從這次響鈴時間之後再找下一次，就算系統提早幾毫秒送來也不會再排到同一時間
+                val base = maxOf(at, nowMs) + 60_000L
+                Scheduler.schedule(
+                    ctx, item,
+                    java.time.Instant.ofEpochMilli(base).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime(),
+                )
             }
         }
         // 一鍵安靜開著：不響、不震、不亮螢幕，只留一則沒有聲音的通知（下一次照常排好了）

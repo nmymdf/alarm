@@ -909,7 +909,10 @@ private fun EditRow(item: Item, isNew: Boolean = false, onCommit: (Item) -> Unit
         }
     }
 
+    var saved by remember(item.id) { mutableStateOf(false) }
+
     fun commit() {
+        if (isNew && saved) return
         val tm = Parser.parseTime(time.text)
         if (tm == null) {
             timeError = "時間格式不對，例如 07:30"
@@ -953,6 +956,7 @@ private fun EditRow(item: Item, isNew: Boolean = false, onCommit: (Item) -> Unit
             return
         }
         focus.clearFocus()
+        saved = true
         onCommit(u)
     }
 

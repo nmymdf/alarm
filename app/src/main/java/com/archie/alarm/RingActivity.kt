@@ -68,7 +68,7 @@ class RingActivity : ComponentActivity() {
         val id = intent.getLongExtra("id", -1L)
         val adv = intent.getBooleanExtra("adv", false)
         val item = RingService.lookup(id)
-        if (item == null || (!RingService.running && id != RingService.TEST_ID)) {
+        if (item == null) {
             finish()
             return
         }
